@@ -100,6 +100,7 @@
     <div class="row">
       <button id="discBtn" class="ghost">Descobrir grupos</button>
       <label class="muted"><input type="checkbox" id="bf" /> backfill de membros ao rastrear</label>
+      <span class="muted">membros únicos (união dos grupos): <b id="uniqMembers">–</b></span>
     </div>
     <div id="discList" style="margin-top:10px"></div>
     <div id="groupCards" class="grid" style="margin-top:14px"></div>
@@ -297,6 +298,7 @@ async function refreshDash() {
     if (c.meta_configured) { mp.className = "pill open"; mp.textContent = c.test_mode ? "config (teste)" : "configurado"; }
     else { mp.className = "pill off"; mp.textContent = "sem credencial"; }
     $("#metaStat").textContent = `${c.event_name || "JoinGroup"} · enviados ${j.sent || 0} · fila ${j.pending || 0} · falhou ${j.failed || 0} · pulados ${j.skipped || 0}`;
+    if ($("#uniqMembers")) $("#uniqMembers").textContent = d.unique_members ?? 0;
 
     $("#groupCards").innerHTML = (d.groups || []).map((g) => `
       <div class="card">

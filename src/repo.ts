@@ -410,14 +410,20 @@ export async function dashboardData(tenantId: string, days = 14): Promise<Record
     };
   });
 
-  const [capiJoins, capiLeads, t] = await Promise.all([
+  const [capiJoins, capiLeads, t, uniq] = await Promise.all([
     statusCounts(tenantId),
     leadStatusCounts(tenantId),
     getTenant(tenantId),
+    pool.query<{ n: number }>(
+      "select count(distinct phone_e164)::int as n from group_members where tenant_id = $1 and present",
+      [tenantId],
+    ),
   ]);
+  const uniqueMembers = Number(uniq.rows[0]?.n ?? 0);
 
   return {
     days: Number(d),
+    unique_members: uniqueMembers,
     groups: groupsOut,
     links: linksOut,
     capi: {
