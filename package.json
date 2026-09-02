@@ -1,0 +1,30 @@
+{
+  "name": "capi-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev:api": "tsx watch src/server.ts",
+    "dev:worker": "tsx watch src/worker.ts",
+    "build": "tsc -p tsconfig.json",
+    "start:api": "node dist/server.js",
+    "start:worker": "node dist/worker.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "bullmq": "^5.34.0",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.0",
+    "ioredis": "^5.4.2",
+    "pg": "^8.13.1",
+    "pino": "^9.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

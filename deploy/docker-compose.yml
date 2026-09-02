@@ -1,0 +1,124 @@
+# Stack completo numa VPS: Evolution API + capi-worker + Caddy (HTTPS + Basic Auth).
+# Uso:  cd deploy && cp .env.example .env && (edite) && docker compose up -d --build
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes: ["redis_data:/data"]
+
+  pg-capi:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: capi
+      POSTGRES_PASSWORD: capi
+      POSTGRES_DB: capi
+    volumes: ["pg_capi:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U capi"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  pg-evo:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evo
+      POSTGRES_PASSWORD: evo
+      POSTGRES_DB: evolution
+    volumes: ["pg_evo:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evo"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  evolution:
+    # confira a tag estável atual em hub.docker.com/r/evoapicloud/evolution-api
+    image: evoapicloud/evolution-api:v2.2.3
+    restart: unless-stopped
+    depends_on:
+      pg-evo: { condition: service_healthy }
+      redis: { condition: service_started }
+    environment:
+      SERVER_URL: http://evolution:8080
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      DEL_INSTANCE: "false"
+      QRCODE_LIMIT: "30"
+      LOG_LEVEL: ERROR
+      CONFIG_SESSION_PHONE_CLIENT: DutraViagens
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evo:evo@pg-evo:5432/evolution?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: evolution
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://redis:6379/1
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_REDIS_SAVE_INSTANCES: "true"
+      CACHE_LOCAL_ENABLED: "false"
+      WEBHOOK_GLOBAL_ENABLED: "false"
+    volumes: ["evolution_instances:/evolution/instances"]
+    ports: ["127.0.0.1:8081:8080"] # só localhost da VPS, para debug
+
+  capi-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      pg-capi: { condition: service_healthy }
+      redis: { condition: service_started }
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://capi:capi@pg-capi:5432/capi
+      REDIS_URL: redis://redis:6379/0
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      PUBLIC_BASE_URL: https://${CADDY_DOMAIN}
+      DASH_BASIC_AUTH: ${DASH_BASIC_AUTH}
+      BOOTSTRAP_TENANT_ID: ${BOOTSTRAP_TENANT_ID}
+      BOOTSTRAP_TENANT_NAME: ${BOOTSTRAP_TENANT_NAME}
+      BOOTSTRAP_WEBHOOK_SECRET: ${BOOTSTRAP_WEBHOOK_SECRET}
+    command: ["node", "dist/server.js"]
+
+  capi-worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      pg-capi: { condition: service_healthy }
+      redis: { condition: service_started }
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://capi:capi@pg-capi:5432/capi
+      REDIS_URL: redis://redis:6379/0
+      WORKER_CONCURRENCY: "5"
+    command: ["node", "dist/worker.js"]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [capi-api]
+    ports: ["80:80", "443:443"]
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  redis_data:
+  pg_capi:
+  pg_evo:
+  evolution_instances:
+  caddy_data:
+  caddy_config:

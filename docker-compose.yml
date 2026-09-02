@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: capi
+      POSTGRES_PASSWORD: capi
+      POSTGRES_DB: capi
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U capi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://capi:capi@postgres:5432/capi
+      REDIS_URL: redis://redis:6379
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    command: ["node", "dist/server.js"]
+
+  worker:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://capi:capi@postgres:5432/capi
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    command: ["node", "dist/worker.js"]
+
+volumes:
+  pgdata:

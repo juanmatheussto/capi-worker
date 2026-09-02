@@ -1,0 +1,6 @@
+{$CADDY_DOMAIN} {
+	encode gzip
+	# o Basic Auth do dashboard é feito pela própria app (env DASH_BASIC_AUTH).
+	# público: /r/*  /lead/*  /webhooks/*  /healthz
+	reverse_proxy capi-api:8080
+}

@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CAPI Worker — Dashboard</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0b141a; color: #e9edef; font: 14px/1.5 system-ui, sans-serif; }
+  header { background: #111b21; border-bottom: 1px solid #2a3942; padding: 12px 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 12px 0 0; font-weight: 700; }
+  input, button, select { font: inherit; }
+  input { background: #0b141a; color: #e9edef; border: 1px solid #2a3942; border-radius: 6px; padding: 6px 9px; }
+  button { background: #008069; color: #fff; border: 0; border-radius: 6px; padding: 7px 13px; font-weight: 600; cursor: pointer; }
+  button.ghost { background: #2a3942; }
+  button:disabled { opacity: .5; cursor: default; }
+  main { padding: 20px; max-width: 1100px; margin: 0 auto; display: grid; gap: 20px; }
+  section { background: #111b21; border: 1px solid #2a3942; border-radius: 12px; padding: 16px; }
+  section h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: #8696a0; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .pill.open { background: #0a3; color: #fff; }
+  .pill.off { background: #833; color: #fff; }
+  .pill.wait { background: #a70; color: #fff; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+  .card { background: #0b141a; border: 1px solid #2a3942; border-radius: 10px; padding: 12px; }
+  .card .name { font-weight: 700; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .label { color: #8696a0; font-size: 12px; }
+  .big { font-size: 22px; font-weight: 700; }
+  .in { color: #22c55e; } .out { color: #ef4444; } .mut { color: #8696a0; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #2a3942; font-size: 13px; vertical-align: middle; }
+  th { color: #8696a0; font-weight: 600; }
+  code { background: #0b141a; border: 1px solid #2a3942; border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+  .muted { color: #8696a0; font-size: 12px; }
+  #qr img { width: 220px; height: 220px; background: #fff; border-radius: 8px; padding: 6px; }
+  .err { color: #ef8d8d; font-size: 12px; }
+  ul.groups { list-style: none; padding: 0; margin: 0; max-height: 260px; overflow: auto; }
+  ul.groups li { display: flex; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid #1e2a30; }
+  ul.groups li .gn { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CAPI Worker</h1>
+  <input id="tenant" placeholder="tenant id" size="12" />
+  <input id="apikey" placeholder="admin api key" type="password" size="18" />
+  <input id="days" type="number" value="14" min="1" max="90" size="3" style="width:56px" />
+  <button id="save" class="ghost">Salvar</button>
+  <span id="hdrmsg" class="muted"></span>
+</header>
+
+<main>
+  <section id="metaSec">
+    <h2>Meta — Conversions API</h2>
+    <div class="row">
+      <span id="metaPill" class="pill off">—</span>
+      <span id="metaStat" class="muted"></span>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <input id="mPixel" placeholder="Pixel / Dataset ID" size="18" />
+      <input id="mToken" placeholder="Token da Conversions API" type="password" size="26" />
+      <input id="mTest" placeholder="test_event_code (opcional)" size="16" />
+      <input id="mEvent" placeholder="evento" value="JoinGroup" size="12" />
+      <button id="mSave">Salvar Meta</button>
+    </div>
+    <p class="muted">Pixel ID e token vêm do Gerenciador de Eventos → Configurações → Conversions API. Sem isso, o worker cai no fallback do <code>.env</code> (se houver).</p>
+  </section>
+
+  <section id="connSec">
+    <h2>Conexão WhatsApp</h2>
+    <div class="row">
+      <span id="connPill" class="pill off">—</span>
+      <button id="connBtn" class="ghost">Verificar / Conectar</button>
+      <span id="connMsg" class="muted"></span>
+    </div>
+    <div id="qr" style="margin-top:12px"></div>
+    <details style="margin-top:10px">
+      <summary class="muted">configurar instância do Evolution</summary>
+      <p class="muted" style="margin:8px 0 4px">Criar instância nova (usa a apikey <b>global</b> do Evolution; já aponta o webhook):</p>
+      <div class="row">
+        <input id="evoCreateUrl" placeholder="http://evolution:8080" size="22" />
+        <input id="evoGlobalKey" placeholder="apikey global do Evolution" type="password" size="20" />
+        <input id="evoNewInst" placeholder="nome (ex: dutra-01)" size="14" />
+        <button id="evoCreate">Criar + conectar</button>
+      </div>
+      <p class="muted" style="margin:12px 0 4px">Ou usar instância já existente:</p>
+      <div class="row">
+        <input id="evoUrl" placeholder="http://evolution:8080" size="22" />
+        <input id="evoKey" placeholder="apikey da instância" type="password" size="18" />
+        <input id="evoInst" placeholder="nome da instância" size="14" />
+        <button id="evoSave" class="ghost">Salvar</button>
+      </div>
+    </details>
+  </section>
+
+  <section id="groupsSec">
+    <h2>Grupos</h2>
+    <div class="row">
+      <button id="discBtn" class="ghost">Descobrir grupos</button>
+      <label class="muted"><input type="checkbox" id="bf" /> backfill de membros ao rastrear</label>
+    </div>
+    <div id="discList" style="margin-top:10px"></div>
+    <div id="groupCards" class="grid" style="margin-top:14px"></div>
+  </section>
+
+  <section id="linksSec">
+    <h2>Links da oferta</h2>
+    <div class="row">
+      <input id="lslug" placeholder="slug (ex: grupo)" size="14" />
+      <input id="ldest" placeholder="destino (https://...)" size="30" />
+      <input id="llabel" placeholder="rótulo (ex: lisboa-exec)" size="16" />
+      <button id="lcreate">Criar</button>
+    </div>
+    <table style="margin-top:12px">
+      <thead><tr><th>Link</th><th>Destino</th><th>Cliques (total)</th><th>7d</th><th>período</th></tr></thead>
+      <tbody id="linkRows"><tr><td colspan="5" class="muted">—</td></tr></tbody>
+    </table>
+    <p class="muted">Cliques do bot de preview do WhatsApp são detectados e não contam.</p>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const ORIGIN = location.origin;
+let pollTimer = null;
+
+const store = {
+  get tenant() { return localStorage.getItem("cw_tenant") || ""; },
+  set tenant(v) { localStorage.setItem("cw_tenant", v); },
+  get key() { return localStorage.getItem("cw_key") || ""; },
+  set key(v) { localStorage.setItem("cw_key", v); },
+  get days() { return localStorage.getItem("cw_days") || "14"; },
+  set days(v) { localStorage.setItem("cw_days", v); },
+};
+
+$("#tenant").value = store.tenant;
+$("#apikey").value = store.key;
+$("#days").value = store.days;
+
+async function api(path, opts = {}) {
+  const res = await fetch(ORIGIN + path, {
+    ...opts,
+    headers: { "content-type": "application/json", "x-api-key": store.key, ...(opts.headers || {}) },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || ("HTTP " + res.status));
+  return body;
+}
+
+function spark(series, color) {
+  if (!series || !series.length) return "";
+  const max = Math.max(1, ...series.map((p) => p.n));
+  const w = 4, gap = 1, h = 24;
+  const bars = series.map((p, i) => {
+    const bh = Math.round((p.n / max) * h);
+    return `<rect x="${i * (w + gap)}" y="${h - bh}" width="${w}" height="${bh}" fill="${color}"/>`;
+  }).join("");
+  const width = series.length * (w + gap);
+  return `<svg width="${width}" height="${h}" viewBox="0 0 ${width} ${h}">${bars}</svg>`;
+}
+
+$("#save").onclick = () => {
+  store.tenant = $("#tenant").value.trim();
+  store.key = $("#apikey").value.trim();
+  store.days = $("#days").value || "14";
+  $("#hdrmsg").textContent = "salvo";
+  refreshAll();
+};
+
+$("#mSave").onclick = async () => {
+  try {
+    await api(`/tenants/${store.tenant}/meta`, {
+      method: "POST",
+      body: JSON.stringify({
+        pixelId: $("#mPixel").value.trim(),
+        capiToken: $("#mToken").value.trim(),
+        testEventCode: $("#mTest").value.trim() || null,
+        eventName: $("#mEvent").value.trim() || null,
+      }),
+    });
+    $("#metaStat").textContent = "salvo";
+    refreshDash();
+  } catch (e) { $("#metaStat").innerHTML = `<span class="err">${e.message}</span>`; }
+};
+
+$("#evoSave").onclick = async () => {
+  try {
+    await api(`/tenants/${store.tenant}/instance`, {
+      method: "POST",
+      body: JSON.stringify({ baseUrl: $("#evoUrl").value.trim(), apiKey: $("#evoKey").value.trim(), instance: $("#evoInst").value.trim() }),
+    });
+    $("#connMsg").textContent = "instância salva";
+    checkConn();
+  } catch (e) { $("#connMsg").innerHTML = `<span class="err">${e.message}</span>`; }
+};
+
+$("#evoCreate").onclick = async () => {
+  $("#connMsg").textContent = "criando instância...";
+  try {
+    const r = await api(`/tenants/${store.tenant}/instance/create`, {
+      method: "POST",
+      body: JSON.stringify({ baseUrl: $("#evoCreateUrl").value.trim(), globalApiKey: $("#evoGlobalKey").value.trim(), instance: $("#evoNewInst").value.trim() }),
+    });
+    $("#connMsg").textContent = "instância criada · webhook: " + (typeof r.webhook === "string" ? r.webhook : "ver resposta");
+    if (r.qr) { $("#qr").innerHTML = `<img src="${r.qr}" alt="QR" />`; }
+    if (!pollTimer) pollTimer = setInterval(checkConn, 4000);
+  } catch (e) { $("#connMsg").innerHTML = `<span class="err">${e.message}</span>`; }
+};
+
+$("#connBtn").onclick = checkConn;
+
+async function checkConn() {
+  $("#connMsg").textContent = "consultando...";
+  try {
+    const c = await api(`/tenants/${store.tenant}/connection`);
+    const pill = $("#connPill");
+    if (!c.configured) { pill.className = "pill off"; pill.textContent = "sem instância"; $("#qr").innerHTML = ""; $("#connMsg").textContent = "configure a instância abaixo"; return; }
+    if (c.state === "open") {
+      pill.className = "pill open"; pill.textContent = "conectado";
+      $("#qr").innerHTML = ""; $("#connMsg").textContent = "";
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      return;
+    }
+    pill.className = "pill wait"; pill.textContent = c.state || "aguardando";
+    $("#qr").innerHTML = c.qr ? `<img src="${c.qr}" alt="QR" />` : (c.pairing_code ? `código: <code>${c.pairing_code}</code>` : "<span class='muted'>sem QR retornado</span>");
+    $("#connMsg").textContent = "escaneie o QR no WhatsApp";
+    if (!pollTimer) pollTimer = setInterval(checkConn, 4000);
+  } catch (e) { $("#connMsg").innerHTML = `<span class="err">${e.message}</span>`; }
+}
+
+$("#discBtn").onclick = async () => {
+  $("#discList").innerHTML = "<span class='muted'>buscando...</span>";
+  try {
+    const r = await api(`/tenants/${store.tenant}/discover-groups`, { method: "POST", body: "{}" });
+    const items = (r.groups || []).map((g) => `
+      <li>
+        <input type="checkbox" data-jid="${g.jid}" data-name="${(g.name||'').replace(/"/g,'&quot;')}" ${g.tracked ? "checked disabled" : ""}/>
+        <span class="gn">${g.name || g.jid}</span>
+        <span class="muted">${g.size ?? "?"}${g.tracked ? " · rastreado" : ""}</span>
+        <input placeholder="rótulo" size="10" data-label-for="${g.jid}" ${g.tracked ? "disabled" : ""}/>
+      </li>`).join("");
+    $("#discList").innerHTML = `<ul class="groups">${items}</ul><button id="track" style="margin-top:8px">Rastrear selecionados</button>`;
+    $("#track").onclick = trackSelected;
+  } catch (e) { $("#discList").innerHTML = `<span class="err">${e.message}</span>`; }
+};
+
+async function trackSelected() {
+  const boxes = [...document.querySelectorAll('#discList input[type=checkbox]:checked:not(:disabled)')];
+  const bf = $("#bf").checked;
+  for (const b of boxes) {
+    const jid = b.dataset.jid;
+    const label = document.querySelector(`[data-label-for="${jid}"]`)?.value?.trim() || null;
+    await api(`/tenants/${store.tenant}/groups`, {
+      method: "POST",
+      body: JSON.stringify({ groupJid: jid, groupName: b.dataset.name, campaignLabel: label, backfill: bf }),
+    });
+  }
+  $("#discList").innerHTML = "<span class='muted'>ok, rastreando " + boxes.length + " grupo(s)</span>";
+  refreshDash();
+}
+
+$("#lcreate").onclick = async () => {
+  try {
+    const r = await api(`/tenants/${store.tenant}/links`, {
+      method: "POST",
+      body: JSON.stringify({ slug: $("#lslug").value.trim(), destinationUrl: $("#ldest").value.trim(), campaignLabel: $("#llabel").value.trim() || null }),
+    });
+    $("#lslug").value = $("#ldest").value = $("#llabel").value = "";
+    refreshDash();
+  } catch (e) { alert(e.message); }
+};
+
+async function refreshDash() {
+  try {
+    const d = await api(`/tenants/${store.tenant}/dashboard?days=${store.days}`);
+
+    const c = d.capi || {};
+    const j = c.joins || {};
+    const mp = $("#metaPill");
+    if (c.meta_configured) { mp.className = "pill open"; mp.textContent = c.test_mode ? "config (teste)" : "configurado"; }
+    else { mp.className = "pill off"; mp.textContent = "sem credencial"; }
+    $("#metaStat").textContent = `${c.event_name || "JoinGroup"} · enviados ${j.sent || 0} · fila ${j.pending || 0} · falhou ${j.failed || 0} · pulados ${j.skipped || 0}`;
+
+    $("#groupCards").innerHTML = (d.groups || []).map((g) => `
+      <div class="card">
+        <div class="name" title="${g.group_name || g.group_jid}">${g.group_name || g.group_jid}</div>
+        <div class="label">${g.campaign_label || "&nbsp;"}</div>
+        <div class="row" style="margin:8px 0"><span class="big">${g.members_present}</span><span class="mut">membros</span></div>
+        <div class="row"><span class="in">+${g.joins_period}</span><span class="out">-${g.leaves_period}</span><span class="mut">em ${d.days}d</span></div>
+        <div style="margin-top:6px">${spark(g.joins_series, "#22c55e")} ${spark(g.leaves_series, "#ef4444")}</div>
+      </div>`).join("") || "<span class='muted'>nenhum grupo rastreado</span>";
+
+    $("#linkRows").innerHTML = (d.links || []).map((l) => `
+      <tr>
+        <td><code>${ORIGIN}/r/${l.slug}</code> <button class="ghost" style="padding:2px 6px" onclick="navigator.clipboard.writeText('${ORIGIN}/r/${l.slug}')">copiar</button><div class="muted">${l.campaign_label || ""}</div></td>
+        <td class="muted" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.destination_url}</td>
+        <td class="big">${l.clicks_total}</td>
+        <td>${l.clicks_7d}</td>
+        <td>${spark(l.series, "#38bdf8")}</td>
+      </tr>`).join("") || `<tr><td colspan="5" class="muted">nenhum link</td></tr>`;
+  } catch (e) { $("#hdrmsg").innerHTML = `<span class="err">${e.message}</span>`; }
+}
+
+function refreshAll() {
+  if (!store.tenant || !store.key) { $("#hdrmsg").textContent = "preencha tenant + api key"; return; }
+  checkConn();
+  refreshDash();
+}
+refreshAll();
+setInterval(refreshDash, 30000);
+</script>
+</body>
+</html>
