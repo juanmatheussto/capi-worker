@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { config } from "./config.js";
+import { logger } from "./logger.js";
 import {
   getTenant,
   upsertTenant,
@@ -482,6 +483,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const isParticipants =
       evName.includes("groupparticipants") || action === "add" || action === "remove";
 
+    logger.info(
+      {
+        tenant: tenant.id,
+        event: body.event,
+        action: data.action,
+        groupJid: data.id ?? data.groupJid ?? data.remoteJid,
+        participants: Array.isArray(data.participants) ? data.participants.length : undefined,
+      },
+      "evolution webhook in",
+    );
+
     if (isParticipants) {
       if (action !== "add" && action !== "remove") {
         return { ok: true, ignored: `action=${action || "?"}` };
@@ -493,7 +505,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       let groupName: string | undefined = data.subject ?? data.groupName;
       if (groups.length > 0) {
         const hit = groups.find((g) => g.group_jid === groupJid);
-        if (!hit) return { ok: true, ignored: "grupo fora da allowlist" };
+        if (!hit) {
+          logger.warn(
+            { groupJid, tracked: groups.map((g) => g.group_jid) },
+            "webhook: grupo fora da allowlist",
+          );
+          return { ok: true, ignored: "grupo fora da allowlist" };
+        }
         campaignLabel = hit.campaign_label ?? undefined;
         groupName = groupName ?? hit.group_name ?? undefined;
       }
