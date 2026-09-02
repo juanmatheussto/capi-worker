@@ -122,15 +122,30 @@ export async function fetchAllGroups(t: Tenant) {
 export async function fetchParticipants(t: Tenant, groupJid: string) {
   const c = evoConfig(t);
   if (!c) return { configured: false as const, participants: [] as ParticipantInfo[] };
+
+  // 1) endpoint dedicado
   const r = await evo(
     c,
     `/group/participants/${c.instance}?groupJid=${encodeURIComponent(groupJid)}`,
   );
-  const arr: any[] = r.body?.participants ?? (Array.isArray(r.body) ? r.body : []);
-  const participants: ParticipantInfo[] = arr.map((p) => ({
-    jid: p.id ?? p.jid,
-    admin: Boolean(p.admin || p.isAdmin || p.isSuperAdmin),
-  }));
+  let arr: any[] = r.body?.participants ?? (Array.isArray(r.body) ? r.body : []);
+
+  // 2) fallback: metadata completo (quando o dedicado devolve só admins/parcial)
+  if (arr.length < 6) {
+    const g = await evo(c, `/group/fetchAllGroups/${c.instance}?getParticipants=true`);
+    const list: any[] = Array.isArray(g.body) ? g.body : (g.body?.groups ?? []);
+    const hit = list.find((x) => (x.id ?? x.jid) === groupJid);
+    if (Array.isArray(hit?.participants) && hit.participants.length > arr.length) {
+      arr = hit.participants;
+    }
+  }
+
+  const participants: ParticipantInfo[] = arr
+    .map((p) => ({
+      jid: p.id ?? p.jid,
+      admin: Boolean(p.admin || p.isAdmin || p.isSuperAdmin),
+    }))
+    .filter((p) => p.jid);
   return { configured: true as const, ok: r.ok, participants };
 }
 

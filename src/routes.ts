@@ -264,8 +264,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     });
 
     let backfilled = 0;
+    let fetched = 0;
     if (b.backfill || b.sync) {
       const p = await fetchParticipants(tenant, b.groupJid as string);
+      fetched = p.participants.length;
       for (const part of p.participants) {
         const phone = jidToE164(part.jid);
         if (!phone) continue;
@@ -280,7 +282,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         backfilled++;
       }
     }
-    return { ok: true, backfilled };
+    return { ok: true, backfilled, fetched };
   });
 
   // cria/atualiza um link encurtado (o que vai junto com a oferta)
