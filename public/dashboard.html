@@ -115,9 +115,10 @@
     </div>
     <textarea id="lmsg" placeholder="mensagem da oferta (opcional) — o link entra no fim automaticamente" style="width:100%;margin-top:8px;min-height:70px;background:#0b141a;color:#e9edef;border:1px solid #2a3942;border-radius:6px;padding:8px;font:inherit"></textarea>
     <div class="row" style="margin-top:8px">
-      <input id="ltag" placeholder="tag da oferta p/ este disparo (ex: lisboa-latam-0209)" size="34" />
-      <span class="muted">quando preenchida, "copiar link/mensagem" já anexa <code>?c=tag</code></span>
+      <input id="ltag" placeholder="tag da oferta p/ este disparo (ex: lisboa-latam-0209)" size="30" />
+      <input id="lbase" placeholder="base pública (ex: https://dutraviagens.com.br/g)" size="34" />
     </div>
+    <div class="muted" style="margin-top:4px">tag preenchida → "copiar" anexa <code>?c=tag</code>. base preenchida → o link sai nesse domínio (aponte /g/* pro <code id="lorigin2"></code>/r/ no WordPress).</div>
     <table style="margin-top:12px">
       <thead><tr><th>Link</th><th>Destino</th><th>Cliques (total)</th><th>7d</th><th>período</th></tr></thead>
       <tbody id="linkRows"><tr><td colspan="5" class="muted">—</td></tr></tbody>
@@ -138,11 +139,15 @@ const store = {
   set key(v) { localStorage.setItem("cw_key", v); },
   get days() { return localStorage.getItem("cw_days") || "14"; },
   set days(v) { localStorage.setItem("cw_days", v); },
+  get lbase() { return localStorage.getItem("cw_lbase") || ""; },
+  set lbase(v) { localStorage.setItem("cw_lbase", v); },
 };
 
 $("#tenant").value = store.tenant;
 $("#apikey").value = store.key;
 $("#days").value = store.days;
+$("#lbase").value = store.lbase;
+$("#lbase").onchange = () => { store.lbase = $("#lbase").value.trim().replace(/\/+$/, ""); refreshDash(); };
 
 async function api(path, opts = {}) {
   const res = await fetch(ORIGIN + path, {
@@ -334,10 +339,12 @@ async function refreshDash() {
     });
 
     const slugify = (s) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+    const base = store.lbase || `${ORIGIN}/r`;
     const linkUrl = (s) => {
       const tag = slugify($("#ltag").value || "");
-      return `${ORIGIN}/r/${s}${tag ? "?c=" + tag : ""}`;
+      return `${base}/${s}${tag ? "?c=" + tag : ""}`;
     };
+    $("#lorigin2").textContent = ORIGIN;
     const fmtDay = (iso) => iso.slice(8, 10) + "/" + iso.slice(5, 7);
     const fmtDt = (iso) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)} ${iso.slice(11, 16)}` : "";
     $("#linkRows").innerHTML = (d.links || []).flatMap((l, i) => [`
