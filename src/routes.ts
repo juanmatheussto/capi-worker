@@ -27,12 +27,14 @@ import {
 import { ingestEvents, ingestLead } from "./pipeline.js";
 import { jidToE164, onlyDigits, toE164 } from "./core/normalize.js";
 import {
+  evoConfig,
   connectionState,
   connectQr,
   fetchAllGroups,
   fetchParticipants,
   createInstance,
   setWebhook,
+  getWebhook,
 } from "./core/evolution.js";
 import type { LeadInput, NormalizedEvent } from "./types.js";
 
@@ -211,6 +213,30 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       webhook = w.ok ? "configurado" : w.raw;
     }
     return { ok: true, qr: created.qr, webhook };
+  });
+
+  // ver o webhook configurado na Evolution (debug)
+  app.get("/tenants/:id/webhook", async (req, reply) => {
+    if (!requireAdmin(req, reply)) return;
+    const tenant = await getTenant((req.params as { id: string }).id);
+    if (!tenant) return reply.code(404).send({ error: "tenant nao encontrado" });
+    return getWebhook(tenant);
+  });
+
+  // (re)configura o webhook da Evolution para uma URL (default = interna se informada)
+  app.post("/tenants/:id/webhook", async (req, reply) => {
+    if (!requireAdmin(req, reply)) return;
+    const { id } = req.params as { id: string };
+    const tenant = await getTenant(id);
+    if (!tenant) return reply.code(404).send({ error: "tenant nao encontrado" });
+    const cfg = evoConfig(tenant);
+    if (!cfg) return reply.code(400).send({ error: "instancia do Evolution nao configurada" });
+    const b = (req.body ?? {}) as Record<string, string>;
+    const url =
+      b.url?.trim() ||
+      `${config.publicBaseUrl.replace(/\/+$/, "")}/webhooks/evolution/${id}`;
+    const w = await setWebhook(cfg.baseUrl, cfg.apiKey, cfg.instance, url, tenant.webhook_secret);
+    return { ok: w.ok, url, result: w.raw };
   });
 
   // estado da conexao + QR (quando ainda nao conectado)

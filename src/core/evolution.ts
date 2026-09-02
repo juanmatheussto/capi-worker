@@ -52,6 +52,14 @@ export async function createInstance(baseUrl: string, globalApiKey: string, inst
   return { ok: r.ok, status: r.status, instanceToken, qr, raw: b };
 }
 
+/** Lê o webhook configurado na instância. */
+export async function getWebhook(t: Tenant) {
+  const c = evoConfig(t);
+  if (!c) return { configured: false as const };
+  const r = await evo(c, `/webhook/find/${c.instance}`);
+  return { configured: true as const, ok: r.ok, status: r.status, webhook: r.body };
+}
+
 /** Configura o webhook da instância (tenta formato v2 aninhado, cai pro flat). */
 export async function setWebhook(
   baseUrl: string,

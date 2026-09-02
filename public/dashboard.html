@@ -92,6 +92,13 @@
         <input id="evoInst" placeholder="nome da instância" size="14" />
         <button id="evoSave" class="ghost">Salvar</button>
       </div>
+      <p class="muted" style="margin:12px 0 4px">Webhook (para onde a Evolution manda os eventos):</p>
+      <div class="row">
+        <button id="whCheck" class="ghost">ver webhook atual</button>
+        <input id="whUrl" placeholder="http://PROJETO_capi-api:8080/webhooks/evolution/TENANT" size="42" />
+        <button id="whSet">reconfigurar</button>
+      </div>
+      <div id="whOut" class="muted" style="margin-top:6px;white-space:pre-wrap;word-break:break-all"></div>
     </details>
   </section>
 
@@ -205,6 +212,24 @@ $("#evoSave").onclick = async () => {
     $("#connMsg").textContent = "instância salva";
     checkConn();
   } catch (e) { $("#connMsg").innerHTML = `<span class="err">${e.message}</span>`; }
+};
+
+$("#whCheck").onclick = async () => {
+  $("#whOut").textContent = "consultando...";
+  try {
+    const r = await api(`/tenants/${store.tenant}/webhook`);
+    $("#whOut").textContent = JSON.stringify(r.webhook ?? r, null, 2);
+  } catch (e) { $("#whOut").innerHTML = `<span class="err">${e.message}</span>`; }
+};
+$("#whSet").onclick = async () => {
+  $("#whOut").textContent = "configurando...";
+  try {
+    const r = await api(`/tenants/${store.tenant}/webhook`, {
+      method: "POST",
+      body: JSON.stringify({ url: $("#whUrl").value.trim() }),
+    });
+    $("#whOut").textContent = (r.ok ? "OK → " : "FALHOU → ") + r.url + "\n" + JSON.stringify(r.result ?? {}, null, 2);
+  } catch (e) { $("#whOut").innerHTML = `<span class="err">${e.message}</span>`; }
 };
 
 $("#evoCreate").onclick = async () => {
