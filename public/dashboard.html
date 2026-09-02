@@ -330,7 +330,8 @@ async function refreshDash() {
     });
 
     const linkUrl = (s) => `${ORIGIN}/r/${s}`;
-    $("#linkRows").innerHTML = (d.links || []).map((l, i) => `
+    const fmtDay = (iso) => iso.slice(8, 10) + "/" + iso.slice(5, 7);
+    $("#linkRows").innerHTML = (d.links || []).flatMap((l, i) => [`
       <tr>
         <td>
           <code>${linkUrl(l.slug)}</code>
@@ -341,8 +342,11 @@ async function refreshDash() {
         <td class="muted" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.destination_url}</td>
         <td class="big">${l.clicks_total}</td>
         <td>${l.clicks_7d}</td>
-        <td>${spark(l.series, "#38bdf8")}</td>
-      </tr>`).join("") || `<tr><td colspan="5" class="muted">nenhum link</td></tr>`;
+        <td>${spark(l.series, "#38bdf8")} <button class="ghost" style="padding:2px 6px" data-toggle="${i}">por dia</button></td>
+      </tr>`, `
+      <tr hidden id="det-${i}"><td colspan="5" class="muted" style="padding:4px 6px 14px">
+        ${(l.series || []).filter((p) => p.n > 0).map((p) => `${fmtDay(p.d)}: <b>${p.n}</b>`).join(" &nbsp;·&nbsp; ") || "sem cliques na janela"}
+      </td></tr>`]).join("") || `<tr><td colspan="5" class="muted">nenhum link</td></tr>`;
 
     document.querySelectorAll("[data-cp]").forEach((b) => {
       b.onclick = () => { navigator.clipboard.writeText(b.dataset.cp); b.textContent = "copiado"; setTimeout(() => b.textContent = "copiar link", 1500); };
@@ -353,6 +357,9 @@ async function refreshDash() {
         navigator.clipboard.writeText(`${l.message}\n\n${linkUrl(l.slug)}`);
         b.textContent = "copiado"; setTimeout(() => b.textContent = "copiar mensagem", 1500);
       };
+    });
+    document.querySelectorAll("[data-toggle]").forEach((b) => {
+      b.onclick = () => { const r = $("#det-" + b.dataset.toggle); r.hidden = !r.hidden; };
     });
 
     $("#lorigin").textContent = ORIGIN;
