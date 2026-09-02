@@ -11,4 +11,5 @@ COPY public ./public
 RUN npm run build
 
 ENV NODE_ENV=production
-CMD ["node", "dist/server.js"]
+# APP_ROLE=worker -> processa a fila; qualquer outro valor (ou vazio) -> API
+CMD ["sh", "-c", "if [ \"$APP_ROLE\" = \"worker\" ]; then exec node dist/worker.js; else exec node dist/server.js; fi"]

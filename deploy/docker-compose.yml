@@ -98,10 +98,10 @@ services:
       redis: { condition: service_started }
     environment:
       NODE_ENV: production
+      APP_ROLE: worker
       DATABASE_URL: postgres://capi:capi@pg-capi:5432/capi
       REDIS_URL: redis://redis:6379/0
       WORKER_CONCURRENCY: "5"
-    command: ["node", "dist/worker.js"]
 
   caddy:
     image: caddy:2
