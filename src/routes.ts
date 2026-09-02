@@ -116,8 +116,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const link = await getLinkBySlug(slug);
     if (!link || !link.active) return reply.code(404).send("link nao encontrado");
     const ua = String(req.headers["user-agent"] ?? "");
+    const q = (req.query ?? {}) as Record<string, string>;
+    const campaign = String(q.c ?? q.o ?? q.oferta ?? "").trim().slice(0, 80) || null;
     await logLinkClick({
       linkId: link.id,
+      campaign,
       ip: clientIp(req),
       ua,
       referer: String(req.headers.referer ?? ""),

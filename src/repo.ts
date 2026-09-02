@@ -269,14 +269,15 @@ export async function getLinkBySlug(slug: string): Promise<
 
 export async function logLinkClick(c: {
   linkId: string;
+  campaign?: string | null;
   ip?: string | null;
   ua?: string | null;
   referer?: string | null;
   isBot: boolean;
 }): Promise<void> {
   await pool.query(
-    "insert into link_clicks (link_id, ip, ua, referer, is_bot) values ($1,$2,$3,$4,$5)",
-    [c.linkId, c.ip ?? null, c.ua ?? null, c.referer ?? null, c.isBot],
+    "insert into link_clicks (link_id, campaign, ip, ua, referer, is_bot) values ($1,$2,$3,$4,$5,$6)",
+    [c.linkId, c.campaign ?? null, c.ip ?? null, c.ua ?? null, c.referer ?? null, c.isBot],
   );
 }
 
@@ -371,6 +372,23 @@ export async function dashboardData(tenantId: string, days = 14): Promise<Record
     )
   ).rows;
 
+  // quebra por oferta (?c= na URL)
+  const byCampaign = (
+    await pool.query<{ link_id: string; campaign: string | null; total: number; window: number; last_at: string }>(
+      `select c.link_id,
+              coalesce(c.campaign, '(sem tag)') as campaign,
+              count(*) filter (where not c.is_bot)::int as total,
+              count(*) filter (where not c.is_bot and c.clicked_at >= now() - ($2 || ' days')::interval)::int as window,
+              max(c.clicked_at) as last_at
+         from link_clicks c
+         join links l on l.id = c.link_id
+        where l.tenant_id = $1
+        group by 1, 2
+        order by 3 desc`,
+      [tenantId, d],
+    )
+  ).rows;
+
   const linksOut = linkRows.map((l) => {
     const m = new Map(linkSeries.filter((s) => s.link_id === l.id).map((s) => [s.d, Number(s.n)]));
     return {
@@ -381,6 +399,14 @@ export async function dashboardData(tenantId: string, days = 14): Promise<Record
       clicks_total: Number(l.clicks_total),
       clicks_7d: Number(l.clicks_7d),
       series: lastNDays(Number(d)).map((day) => ({ d: day, n: m.get(day) ?? 0 })),
+      by_campaign: byCampaign
+        .filter((r) => r.link_id === l.id)
+        .map((r) => ({
+          campaign: r.campaign,
+          total: Number(r.total),
+          window: Number(r.window),
+          last_at: r.last_at,
+        })),
     };
   });
 

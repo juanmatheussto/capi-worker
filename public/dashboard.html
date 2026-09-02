@@ -114,6 +114,10 @@
       <button id="lcreate">Criar</button>
     </div>
     <textarea id="lmsg" placeholder="mensagem da oferta (opcional) — o link entra no fim automaticamente" style="width:100%;margin-top:8px;min-height:70px;background:#0b141a;color:#e9edef;border:1px solid #2a3942;border-radius:6px;padding:8px;font:inherit"></textarea>
+    <div class="row" style="margin-top:8px">
+      <input id="ltag" placeholder="tag da oferta p/ este disparo (ex: lisboa-latam-0209)" size="34" />
+      <span class="muted">quando preenchida, "copiar link/mensagem" já anexa <code>?c=tag</code></span>
+    </div>
     <table style="margin-top:12px">
       <thead><tr><th>Link</th><th>Destino</th><th>Cliques (total)</th><th>7d</th><th>período</th></tr></thead>
       <tbody id="linkRows"><tr><td colspan="5" class="muted">—</td></tr></tbody>
@@ -329,38 +333,55 @@ async function refreshDash() {
       };
     });
 
-    const linkUrl = (s) => `${ORIGIN}/r/${s}`;
+    const slugify = (s) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+    const linkUrl = (s) => {
+      const tag = slugify($("#ltag").value || "");
+      return `${ORIGIN}/r/${s}${tag ? "?c=" + tag : ""}`;
+    };
     const fmtDay = (iso) => iso.slice(8, 10) + "/" + iso.slice(5, 7);
+    const fmtDt = (iso) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)} ${iso.slice(11, 16)}` : "";
     $("#linkRows").innerHTML = (d.links || []).flatMap((l, i) => [`
       <tr>
         <td>
-          <code>${linkUrl(l.slug)}</code>
-          <button class="ghost" style="padding:2px 6px" data-cp="${linkUrl(l.slug)}">copiar link</button>
+          <code data-linkcode="${i}">${linkUrl(l.slug)}</code>
+          <button class="ghost" style="padding:2px 6px" data-cp="${i}">copiar link</button>
           ${l.message ? `<button class="ghost" style="padding:2px 6px" data-cpmsg="${i}">copiar mensagem</button>` : ""}
           <div class="muted">${l.campaign_label || ""}</div>
         </td>
         <td class="muted" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.destination_url}</td>
         <td class="big">${l.clicks_total}</td>
         <td>${l.clicks_7d}</td>
-        <td>${spark(l.series, "#38bdf8")} <button class="ghost" style="padding:2px 6px" data-toggle="${i}">por dia</button></td>
+        <td>${spark(l.series, "#38bdf8")} <button class="ghost" style="padding:2px 6px" data-toggle="${i}">detalhe</button></td>
       </tr>`, `
       <tr hidden id="det-${i}"><td colspan="5" class="muted" style="padding:4px 6px 14px">
-        ${(l.series || []).filter((p) => p.n > 0).map((p) => `${fmtDay(p.d)}: <b>${p.n}</b>`).join(" &nbsp;·&nbsp; ") || "sem cliques na janela"}
+        <div><b>por oferta (?c):</b> ${(l.by_campaign || []).map((r) => `${r.campaign} — <b>${r.total}</b>${r.window !== r.total ? ` (${r.window} na janela)` : ""} <span style="opacity:.6">últ. ${fmtDt(r.last_at)}</span>`).join(" &nbsp;·&nbsp; ") || "nenhum"}</div>
+        <div style="margin-top:6px"><b>por dia:</b> ${(l.series || []).filter((p) => p.n > 0).map((p) => `${fmtDay(p.d)}: <b>${p.n}</b>`).join(" &nbsp;·&nbsp; ") || "sem cliques na janela"}</div>
       </td></tr>`]).join("") || `<tr><td colspan="5" class="muted">nenhum link</td></tr>`;
 
+    const linkOf = (i) => {
+      const l = (d.links || [])[i];
+      const el = document.querySelector(`[data-linkcode="${i}"]`);
+      return el ? el.textContent : linkUrl(l.slug);
+    };
     document.querySelectorAll("[data-cp]").forEach((b) => {
-      b.onclick = () => { navigator.clipboard.writeText(b.dataset.cp); b.textContent = "copiado"; setTimeout(() => b.textContent = "copiar link", 1500); };
+      b.onclick = () => { navigator.clipboard.writeText(linkOf(Number(b.dataset.cp))); b.textContent = "copiado"; setTimeout(() => b.textContent = "copiar link", 1500); };
     });
     document.querySelectorAll("[data-cpmsg]").forEach((b) => {
       b.onclick = () => {
         const l = (d.links || [])[Number(b.dataset.cpmsg)];
-        navigator.clipboard.writeText(`${l.message}\n\n${linkUrl(l.slug)}`);
+        navigator.clipboard.writeText(`${l.message}\n\n${linkOf(Number(b.dataset.cpmsg))}`);
         b.textContent = "copiado"; setTimeout(() => b.textContent = "copiar mensagem", 1500);
       };
     });
     document.querySelectorAll("[data-toggle]").forEach((b) => {
       b.onclick = () => { const r = $("#det-" + b.dataset.toggle); r.hidden = !r.hidden; };
     });
+    $("#ltag").oninput = () => {
+      (d.links || []).forEach((l, i) => {
+        const el = document.querySelector(`[data-linkcode="${i}"]`);
+        if (el) el.textContent = linkUrl(l.slug);
+      });
+    };
 
     $("#lorigin").textContent = ORIGIN;
   } catch (e) { $("#hdrmsg").innerHTML = `<span class="err">${e.message}</span>`; }

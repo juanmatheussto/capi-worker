@@ -71,6 +71,7 @@ create table if not exists link_clicks (
   id         bigserial primary key,
   link_id    bigint not null references links(id) on delete cascade,
   clicked_at timestamptz not null default now(),
+  campaign   text,                              -- tag da oferta (?c= na URL)
   ip         text,
   ua         text,
   referer    text,
@@ -145,3 +146,4 @@ alter table tenants     add column if not exists evo_api_key text;
 alter table tenants     add column if not exists evo_instance text;
 alter table capi_events add column if not exists campaign_label text;
 alter table links       add column if not exists message text;
+alter table link_clicks add column if not exists campaign text;
