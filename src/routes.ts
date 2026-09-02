@@ -19,7 +19,9 @@ import {
   leadStatusCounts,
   logMembership,
   upsertGroupMember,
+  importGroupMembers,
   createLink,
+  deleteLink,
   getLinkBySlug,
   logLinkClick,
   dashboardData,
@@ -332,25 +334,58 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, backfilled, fetched };
   });
 
-  // cria/atualiza um link encurtado (o que vai junto com a oferta)
+  // cria / remove um link encurtado
   app.post("/tenants/:id/links", async (req, reply) => {
     if (!requireAdmin(req, reply)) return;
     const { id } = req.params as { id: string };
     const b = (req.body ?? {}) as Record<string, string>;
-    // slug = só o último segmento, sem barra/domínio/espaço
     const slug = String(b.slug ?? "").split(/[/\s]+/).filter(Boolean).pop()?.toLowerCase() ?? "";
-    if (!/^[a-z0-9._-]{1,60}$/.test(slug) || !b.destinationUrl) {
-      return reply.code(400).send({ error: "slug (só letras/números/-/_) e destinationUrl obrigatorios" });
+    if (!/^[a-z0-9._-]{1,60}$/.test(slug)) {
+      return reply.code(400).send({ error: "slug inválido (use só letras, números, - ou _)" });
     }
     if (!(await getTenant(id))) return reply.code(404).send({ error: "tenant nao encontrado" });
+
+    if (b.remove) {
+      await deleteLink(id, slug);
+      return { ok: true, removed: true };
+    }
+
+    let dest = String(b.destinationUrl ?? "").trim();
+    if (!dest) return reply.code(400).send({ error: "destino obrigatório" });
+    if (!/^https?:\/\//i.test(dest) && !dest.startsWith("/")) dest = "https://" + dest;
+
     await createLink({
       tenantId: id,
       slug,
-      destinationUrl: b.destinationUrl,
+      destinationUrl: dest,
       campaignLabel: b.campaignLabel ?? null,
       message: b.message ?? null,
     });
-    return { ok: true, slug, path: `/r/${slug}` };
+    return { ok: true, slug, path: `/r/${slug}`, destination: dest };
+  });
+
+  // importa membros em massa para um grupo (da extensão / CSV). NÃO gera evento CAPI.
+  app.post("/tenants/:id/members/import", async (req, reply) => {
+    if (!requireAdmin(req, reply)) return;
+    const { id } = req.params as { id: string };
+    if (!(await getTenant(id))) return reply.code(404).send({ error: "tenant nao encontrado" });
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    if (!b.groupJid) return reply.code(400).send({ error: "groupJid obrigatorio" });
+    const raw = Array.isArray(b.phones)
+      ? (b.phones as string[])
+      : String(b.phones ?? "").split(/[\s,;]+/);
+    const phones = [...new Set(raw.map((x) => toE164(x)).filter((x): x is string => Boolean(x)))];
+    if (!phones.length) return reply.code(400).send({ error: "nenhum telefone válido" });
+    if (b.groupName) {
+      await upsertTenantGroup({
+        tenantId: id,
+        groupJid: b.groupJid as string,
+        groupName: b.groupName as string,
+        campaignLabel: null,
+      });
+    }
+    const imported = await importGroupMembers({ tenantId: id, groupJid: b.groupJid as string, phones });
+    return { ok: true, imported };
   });
 
   app.get("/tenants/:id/dashboard", async (req, reply) => {

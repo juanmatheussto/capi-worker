@@ -257,6 +257,32 @@ export async function createLink(l: {
   return rows[0];
 }
 
+export async function deleteLink(tenantId: string, slug: string): Promise<void> {
+  await pool.query("update links set active = false where tenant_id = $1 and slug = $2", [
+    tenantId,
+    slug,
+  ]);
+}
+
+export async function importGroupMembers(t: {
+  tenantId: string;
+  groupJid: string;
+  phones: string[];
+}): Promise<number> {
+  let n = 0;
+  for (const phone of t.phones) {
+    await pool.query(
+      `insert into group_members (tenant_id, group_jid, phone_e164, source, present)
+       values ($1, $2, $3, 'import', true)
+       on conflict (tenant_id, group_jid, phone_e164)
+       do update set last_seen = now(), present = true`,
+      [t.tenantId, t.groupJid, phone],
+    );
+    n++;
+  }
+  return n;
+}
+
 export async function getLinkBySlug(slug: string): Promise<
   { id: string; destination_url: string; active: boolean } | undefined
 > {

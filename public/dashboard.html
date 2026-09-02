@@ -114,6 +114,15 @@
     </div>
     <div id="discList" style="margin-top:10px"></div>
     <div id="groupCards" class="grid" style="margin-top:14px"></div>
+    <details style="margin-top:14px">
+      <summary class="muted">importar membros (da extensão wa-contatos ou colando telefones)</summary>
+      <div class="row" style="margin-top:8px">
+        <select id="impGroup"></select>
+        <button id="impBtn">Importar</button>
+      </div>
+      <textarea id="impPhones" placeholder="um telefone por linha (ou separados por vírgula). Ex: 5562988887777" style="width:100%;margin-top:8px;min-height:90px;background:#0b141a;color:#e9edef;border:1px solid #2a3942;border-radius:6px;padding:8px;font:inherit"></textarea>
+      <div id="impOut" class="muted" style="margin-top:6px"></div>
+    </details>
   </section>
 
   <section id="linksSec">
@@ -311,6 +320,21 @@ async function trackSelected() {
   refreshDash();
 }
 
+$("#impBtn").onclick = async () => {
+  const jid = $("#impGroup").value;
+  if (!jid) { $("#impOut").textContent = "escolha um grupo"; return; }
+  $("#impOut").textContent = "importando...";
+  try {
+    const r = await api(`/tenants/${store.tenant}/members/import`, {
+      method: "POST",
+      body: JSON.stringify({ groupJid: jid, phones: $("#impPhones").value }),
+    });
+    $("#impOut").textContent = `importados ${r.imported} telefones`;
+    $("#impPhones").value = "";
+    refreshDash();
+  } catch (e) { $("#impOut").innerHTML = `<span class="err">${e.message}</span>`; }
+};
+
 $("#lcreate").onclick = async () => {
   try {
     await api(`/tenants/${store.tenant}/links`, {
@@ -365,6 +389,13 @@ async function refreshDash() {
         } catch (e) { b.disabled = false; alert(e.message); }
       };
     });
+    const impSel = $("#impGroup");
+    if (impSel) {
+      const cur = impSel.value;
+      impSel.innerHTML = (d.groups || []).map((g) => `<option value="${g.group_jid}">${g.group_name || g.group_jid}</option>`).join("");
+      if (cur) impSel.value = cur;
+    }
+
     document.querySelectorAll("[data-sync]").forEach((b) => {
       b.onclick = async () => {
         b.disabled = true; b.textContent = "sincronizando...";
@@ -394,6 +425,7 @@ async function refreshDash() {
           <code data-linkcode="${i}">${linkUrl(l.slug)}</code>
           <button class="ghost" style="padding:2px 6px" data-cp="${i}">copiar link</button>
           ${l.message ? `<button class="ghost" style="padding:2px 6px" data-cpmsg="${i}">copiar mensagem</button>` : ""}
+          <button class="ghost" style="padding:2px 6px" data-dellink="${l.slug}">remover</button>
           <div class="muted">${l.campaign_label || ""}</div>
         </td>
         <td class="muted" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.destination_url}</td>
@@ -423,6 +455,16 @@ async function refreshDash() {
     });
     document.querySelectorAll("[data-toggle]").forEach((b) => {
       b.onclick = () => { const r = $("#det-" + b.dataset.toggle); r.hidden = !r.hidden; };
+    });
+    document.querySelectorAll("[data-dellink]").forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm("remover o link /" + b.dataset.dellink + " ?")) return;
+        b.disabled = true;
+        try {
+          await api(`/tenants/${store.tenant}/links`, { method: "POST", body: JSON.stringify({ slug: b.dataset.dellink, remove: true }) });
+          refreshDash();
+        } catch (e) { b.disabled = false; alert(e.message); }
+      };
     });
     $("#ltag").oninput = () => {
       (d.links || []).forEach((l, i) => {
