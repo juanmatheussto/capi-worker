@@ -50,6 +50,11 @@ function requireAdmin(req: FastifyRequest, reply: FastifyReply): boolean {
   return true;
 }
 
+function withSecret(url: string, secret: string): string {
+  if (/[?&]secret=/.test(url)) return url;
+  return url + (url.includes("?") ? "&" : "?") + "secret=" + encodeURIComponent(secret);
+}
+
 function clientIp(req: FastifyRequest): string {
   const xff = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim();
   return xff || req.ip;
@@ -207,7 +212,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         b.baseUrl,
         created.instanceToken,
         b.instance,
-        `${config.publicBaseUrl.replace(/\/+$/, "")}/webhooks/evolution/${id}`,
+        withSecret(`${config.publicBaseUrl.replace(/\/+$/, "")}/webhooks/evolution/${id}`, tenant.webhook_secret),
         tenant.webhook_secret,
       );
       webhook = w.ok ? "configurado" : w.raw;
@@ -232,9 +237,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const cfg = evoConfig(tenant);
     if (!cfg) return reply.code(400).send({ error: "instancia do Evolution nao configurada" });
     const b = (req.body ?? {}) as Record<string, string>;
-    const url =
-      b.url?.trim() ||
-      `${config.publicBaseUrl.replace(/\/+$/, "")}/webhooks/evolution/${id}`;
+    const url = withSecret(
+      b.url?.trim() || `${config.publicBaseUrl.replace(/\/+$/, "")}/webhooks/evolution/${id}`,
+      tenant.webhook_secret,
+    );
     const w = await setWebhook(cfg.baseUrl, cfg.apiKey, cfg.instance, url, tenant.webhook_secret);
     return { ok: w.ok, url, result: w.raw };
   });
@@ -411,7 +417,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { tenantId } = req.params as { tenantId: string };
     const tenant = await getTenant(tenantId);
     if (!tenant) return reply.code(404).send({ error: "tenant nao encontrado" });
-    if (req.headers["x-webhook-secret"] !== tenant.webhook_secret) {
+    const provided =
+      (req.headers["x-webhook-secret"] as string | undefined) ??
+      (req.query as { secret?: string })?.secret ??
+      "";
+    if (provided !== tenant.webhook_secret) {
       return reply.code(401).send({ error: "assinatura invalida" });
     }
 
