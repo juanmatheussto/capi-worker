@@ -290,7 +290,21 @@ async function refreshDash() {
         <div class="row" style="margin:8px 0"><span class="big">${g.members_present}</span><span class="mut">membros</span></div>
         <div class="row"><span class="in">+${g.joins_period}</span><span class="out">-${g.leaves_period}</span><span class="mut">em ${d.days}d</span></div>
         <div style="margin-top:6px">${spark(g.joins_series, "#22c55e")} ${spark(g.leaves_series, "#ef4444")}</div>
+        <button class="ghost" style="padding:2px 8px;font-size:11px;margin-top:8px" data-untrack="${g.group_jid}">remover</button>
       </div>`).join("") || "<span class='muted'>nenhum grupo rastreado</span>";
+
+    document.querySelectorAll("[data-untrack]").forEach((b) => {
+      b.onclick = async () => {
+        b.disabled = true;
+        try {
+          await api(`/tenants/${store.tenant}/groups`, {
+            method: "POST",
+            body: JSON.stringify({ groupJid: b.dataset.untrack, untrack: true }),
+          });
+          refreshDash();
+        } catch (e) { b.disabled = false; alert(e.message); }
+      };
+    });
 
     $("#linkRows").innerHTML = (d.links || []).map((l) => `
       <tr>

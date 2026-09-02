@@ -88,6 +88,13 @@ export async function getTenantGroups(tenantId: string): Promise<TenantGroup[]> 
   return rows;
 }
 
+export async function untrackTenantGroup(tenantId: string, groupJid: string): Promise<void> {
+  await pool.query(
+    "update tenant_groups set active = false where tenant_id = $1 and group_jid = $2",
+    [tenantId, groupJid],
+  );
+}
+
 export async function upsertTenantGroup(t: {
   tenantId: string;
   groupJid: string;

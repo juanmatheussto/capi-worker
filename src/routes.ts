@@ -11,6 +11,7 @@ import {
   setTenantMeta,
   getTenantGroups,
   upsertTenantGroup,
+  untrackTenantGroup,
   recordCtwaLead,
   listEvents,
   statusCounts,
@@ -229,9 +230,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const [all, tracked] = await Promise.all([fetchAllGroups(tenant), getTenantGroups(tenant.id)]);
     if (!all.configured) return reply.code(400).send({ error: "instancia do Evolution nao configurada" });
     const trackedSet = new Set(tracked.map((g) => g.group_jid));
+    // dedup por jid (a Evolution às vezes devolve o mesmo grupo repetido durante o sync)
+    const uniq = [...new Map(all.groups.filter((g) => g.jid).map((g) => [g.jid, g])).values()];
+    uniq.sort((a, b) => (a.name || "").localeCompare(b.name || "", "pt"));
     return {
       ok: all.ok,
-      groups: all.groups.map((g) => ({ ...g, tracked: trackedSet.has(g.jid) })),
+      groups: uniq.map((g) => ({ ...g, tracked: trackedSet.has(g.jid) })),
     };
   });
 
@@ -243,6 +247,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!b.groupJid) return reply.code(400).send({ error: "groupJid obrigatorio" });
     const tenant = await getTenant(id);
     if (!tenant) return reply.code(404).send({ error: "tenant nao encontrado" });
+
+    if (b.untrack) {
+      await untrackTenantGroup(id, b.groupJid as string);
+      return { ok: true, untracked: true };
+    }
 
     await upsertTenantGroup({
       tenantId: id,
