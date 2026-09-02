@@ -62,6 +62,7 @@ create table if not exists links (
   slug            text not null unique,
   destination_url text not null,
   campaign_label  text,
+  message         text,                          -- template da mensagem da oferta
   active          boolean not null default true,
   created_at      timestamptz not null default now()
 );
@@ -143,3 +144,4 @@ alter table tenants     add column if not exists evo_base_url text;
 alter table tenants     add column if not exists evo_api_key text;
 alter table tenants     add column if not exists evo_instance text;
 alter table capi_events add column if not exists campaign_label text;
+alter table links       add column if not exists message text;

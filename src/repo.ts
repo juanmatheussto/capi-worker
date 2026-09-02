@@ -241,16 +241,18 @@ export async function createLink(l: {
   slug: string;
   destinationUrl: string;
   campaignLabel?: string | null;
+  message?: string | null;
 }): Promise<{ id: string }> {
   const { rows } = await pool.query<{ id: string }>(
-    `insert into links (tenant_id, slug, destination_url, campaign_label)
-     values ($1,$2,$3,$4)
+    `insert into links (tenant_id, slug, destination_url, campaign_label, message)
+     values ($1,$2,$3,$4,$5)
      on conflict (slug) do update set
        destination_url = excluded.destination_url,
        campaign_label  = excluded.campaign_label,
+       message         = excluded.message,
        active = true
      returning id`,
-    [l.tenantId, l.slug, l.destinationUrl, l.campaignLabel ?? null],
+    [l.tenantId, l.slug, l.destinationUrl, l.campaignLabel ?? null, l.message ?? null],
   );
   return rows[0];
 }
@@ -281,7 +283,7 @@ export async function logLinkClick(c: {
 // ------------------------------------------------------------- dashboard
 
 export async function dashboardData(tenantId: string, days = 14): Promise<Record<string, unknown>> {
-  const d = String(Math.min(Math.max(days, 1), 90));
+  const d = String(Math.min(Math.max(days, 1), 365));
 
   const groups = (
     await pool.query(
@@ -307,6 +309,16 @@ export async function dashboardData(tenantId: string, days = 14): Promise<Record
     )
   ).rows;
 
+  // totais de todo o período (sem janela)
+  const totals = (
+    await pool.query<{ group_jid: string; action: string; n: number }>(
+      "select group_jid, action, count(*)::int as n from membership_log where tenant_id = $1 group by 1, 2",
+      [tenantId],
+    )
+  ).rows;
+  const totalOf = (jid: string, action: string) =>
+    Number(totals.find((t) => t.group_jid === jid && t.action === action)?.n ?? 0);
+
   const memberOf = new Map(members.map((m) => [m.group_jid, Number(m.n)]));
   const groupsOut = groups.map((g) => {
     const rows = series.filter((s) => s.group_jid === g.group_jid);
@@ -323,6 +335,8 @@ export async function dashboardData(tenantId: string, days = 14): Promise<Record
       members_present: memberOf.get(g.group_jid) ?? 0,
       joins_period: joins.reduce((a, x) => a + x.n, 0),
       leaves_period: leaves.reduce((a, x) => a + x.n, 0),
+      joins_total: totalOf(g.group_jid, "entrada"),
+      leaves_total: totalOf(g.group_jid, "saida"),
       joins_series: joins,
       leaves_series: leaves,
     };
@@ -330,10 +344,10 @@ export async function dashboardData(tenantId: string, days = 14): Promise<Record
 
   const linkRows = (
     await pool.query<{
-      id: string; slug: string; destination_url: string; campaign_label: string | null;
+      id: string; slug: string; destination_url: string; campaign_label: string | null; message: string | null;
       clicks_total: number; clicks_7d: number;
     }>(
-      `select l.id, l.slug, l.destination_url, l.campaign_label,
+      `select l.id, l.slug, l.destination_url, l.campaign_label, l.message,
               count(c.*) filter (where not c.is_bot)::int as clicks_total,
               count(c.*) filter (where not c.is_bot and c.clicked_at >= now() - interval '7 days')::int as clicks_7d
          from links l
@@ -363,6 +377,7 @@ export async function dashboardData(tenantId: string, days = 14): Promise<Record
       slug: l.slug,
       destination_url: l.destination_url,
       campaign_label: l.campaign_label,
+      message: l.message,
       clicks_total: Number(l.clicks_total),
       clicks_7d: Number(l.clicks_7d),
       series: lastNDays(Number(d)).map((day) => ({ d: day, n: m.get(day) ?? 0 })),

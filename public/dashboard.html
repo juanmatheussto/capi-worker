@@ -46,7 +46,7 @@
   <h1>CAPI Worker</h1>
   <input id="tenant" placeholder="tenant id" size="12" />
   <input id="apikey" placeholder="admin api key" type="password" size="18" />
-  <input id="days" type="number" value="14" min="1" max="90" size="3" style="width:56px" />
+  <input id="days" type="number" value="14" min="1" max="365" size="4" style="width:64px" title="janela em dias (sparkline). Os totais são de todo o período." />
   <button id="save" class="ghost">Salvar</button>
   <span id="hdrmsg" class="muted"></span>
 </header>
@@ -108,16 +108,17 @@
   <section id="linksSec">
     <h2>Links da oferta</h2>
     <div class="row">
-      <input id="lslug" placeholder="slug (ex: grupo)" size="14" />
-      <input id="ldest" placeholder="destino (https://...)" size="30" />
-      <input id="llabel" placeholder="rótulo (ex: lisboa-exec)" size="16" />
+      <input id="lslug" placeholder="slug (ex: vip)" size="10" />
+      <input id="ldest" placeholder="destino: convite do grupo ou wa.me/55...?text=..." size="40" />
+      <input id="llabel" placeholder="rótulo (ex: lisboa-exec)" size="14" />
       <button id="lcreate">Criar</button>
     </div>
+    <textarea id="lmsg" placeholder="mensagem da oferta (opcional) — o link entra no fim automaticamente" style="width:100%;margin-top:8px;min-height:70px;background:#0b141a;color:#e9edef;border:1px solid #2a3942;border-radius:6px;padding:8px;font:inherit"></textarea>
     <table style="margin-top:12px">
       <thead><tr><th>Link</th><th>Destino</th><th>Cliques (total)</th><th>7d</th><th>período</th></tr></thead>
       <tbody id="linkRows"><tr><td colspan="5" class="muted">—</td></tr></tbody>
     </table>
-    <p class="muted">Cliques do bot de preview do WhatsApp são detectados e não contam.</p>
+    <p class="muted">Cliques do bot de preview do WhatsApp são detectados e não contam. O slug vira <code id="lorigin"></code>/r/slug.</p>
   </section>
 </main>
 
@@ -263,11 +264,16 @@ async function trackSelected() {
 
 $("#lcreate").onclick = async () => {
   try {
-    const r = await api(`/tenants/${store.tenant}/links`, {
+    await api(`/tenants/${store.tenant}/links`, {
       method: "POST",
-      body: JSON.stringify({ slug: $("#lslug").value.trim(), destinationUrl: $("#ldest").value.trim(), campaignLabel: $("#llabel").value.trim() || null }),
+      body: JSON.stringify({
+        slug: $("#lslug").value.trim(),
+        destinationUrl: $("#ldest").value.trim(),
+        campaignLabel: $("#llabel").value.trim() || null,
+        message: $("#lmsg").value.trim() || null,
+      }),
     });
-    $("#lslug").value = $("#ldest").value = $("#llabel").value = "";
+    $("#lslug").value = $("#ldest").value = $("#llabel").value = $("#lmsg").value = "";
     refreshDash();
   } catch (e) { alert(e.message); }
 };
@@ -288,9 +294,13 @@ async function refreshDash() {
         <div class="name" title="${g.group_name || g.group_jid}">${g.group_name || g.group_jid}</div>
         <div class="label">${g.campaign_label || "&nbsp;"}</div>
         <div class="row" style="margin:8px 0"><span class="big">${g.members_present}</span><span class="mut">membros</span></div>
-        <div class="row"><span class="in">+${g.joins_period}</span><span class="out">-${g.leaves_period}</span><span class="mut">em ${d.days}d</span></div>
+        <div class="row"><span class="mut">total:</span><span class="in">+${g.joins_total}</span><span class="out">-${g.leaves_total}</span></div>
+        <div class="row"><span class="mut">${d.days}d:</span><span class="in">+${g.joins_period}</span><span class="out">-${g.leaves_period}</span></div>
         <div style="margin-top:6px">${spark(g.joins_series, "#22c55e")} ${spark(g.leaves_series, "#ef4444")}</div>
-        <button class="ghost" style="padding:2px 8px;font-size:11px;margin-top:8px" data-untrack="${g.group_jid}">remover</button>
+        <div class="row" style="margin-top:8px">
+          <button class="ghost" style="padding:2px 8px;font-size:11px" data-sync="${g.group_jid}" data-name="${(g.group_name||'').replace(/"/g,'&quot;')}">sincronizar</button>
+          <button class="ghost" style="padding:2px 8px;font-size:11px" data-untrack="${g.group_jid}">remover</button>
+        </div>
       </div>`).join("") || "<span class='muted'>nenhum grupo rastreado</span>";
 
     document.querySelectorAll("[data-untrack]").forEach((b) => {
@@ -305,15 +315,47 @@ async function refreshDash() {
         } catch (e) { b.disabled = false; alert(e.message); }
       };
     });
+    document.querySelectorAll("[data-sync]").forEach((b) => {
+      b.onclick = async () => {
+        b.disabled = true; b.textContent = "sincronizando...";
+        try {
+          const r = await api(`/tenants/${store.tenant}/groups`, {
+            method: "POST",
+            body: JSON.stringify({ groupJid: b.dataset.sync, groupName: b.dataset.name, sync: true }),
+          });
+          $("#hdrmsg").textContent = `sincronizado: ${r.backfilled || 0} membros`;
+          refreshDash();
+        } catch (e) { b.disabled = false; b.textContent = "sincronizar"; alert(e.message); }
+      };
+    });
 
-    $("#linkRows").innerHTML = (d.links || []).map((l) => `
+    const linkUrl = (s) => `${ORIGIN}/r/${s}`;
+    $("#linkRows").innerHTML = (d.links || []).map((l, i) => `
       <tr>
-        <td><code>${ORIGIN}/r/${l.slug}</code> <button class="ghost" style="padding:2px 6px" onclick="navigator.clipboard.writeText('${ORIGIN}/r/${l.slug}')">copiar</button><div class="muted">${l.campaign_label || ""}</div></td>
-        <td class="muted" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.destination_url}</td>
+        <td>
+          <code>${linkUrl(l.slug)}</code>
+          <button class="ghost" style="padding:2px 6px" data-cp="${linkUrl(l.slug)}">copiar link</button>
+          ${l.message ? `<button class="ghost" style="padding:2px 6px" data-cpmsg="${i}">copiar mensagem</button>` : ""}
+          <div class="muted">${l.campaign_label || ""}</div>
+        </td>
+        <td class="muted" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.destination_url}</td>
         <td class="big">${l.clicks_total}</td>
         <td>${l.clicks_7d}</td>
         <td>${spark(l.series, "#38bdf8")}</td>
       </tr>`).join("") || `<tr><td colspan="5" class="muted">nenhum link</td></tr>`;
+
+    document.querySelectorAll("[data-cp]").forEach((b) => {
+      b.onclick = () => { navigator.clipboard.writeText(b.dataset.cp); b.textContent = "copiado"; setTimeout(() => b.textContent = "copiar link", 1500); };
+    });
+    document.querySelectorAll("[data-cpmsg]").forEach((b) => {
+      b.onclick = () => {
+        const l = (d.links || [])[Number(b.dataset.cpmsg)];
+        navigator.clipboard.writeText(`${l.message}\n\n${linkUrl(l.slug)}`);
+        b.textContent = "copiado"; setTimeout(() => b.textContent = "copiar mensagem", 1500);
+      };
+    });
+
+    $("#lorigin").textContent = ORIGIN;
   } catch (e) { $("#hdrmsg").innerHTML = `<span class="err">${e.message}</span>`; }
 }
 

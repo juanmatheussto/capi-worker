@@ -261,7 +261,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     });
 
     let backfilled = 0;
-    if (b.backfill) {
+    if (b.backfill || b.sync) {
       const p = await fetchParticipants(tenant, b.groupJid as string);
       for (const part of p.participants) {
         const phone = jidToE164(part.jid);
@@ -285,17 +285,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!requireAdmin(req, reply)) return;
     const { id } = req.params as { id: string };
     const b = (req.body ?? {}) as Record<string, string>;
-    if (!b.slug || !b.destinationUrl) {
-      return reply.code(400).send({ error: "slug e destinationUrl obrigatorios" });
+    // slug = só o último segmento, sem barra/domínio/espaço
+    const slug = String(b.slug ?? "").split(/[/\s]+/).filter(Boolean).pop()?.toLowerCase() ?? "";
+    if (!/^[a-z0-9._-]{1,60}$/.test(slug) || !b.destinationUrl) {
+      return reply.code(400).send({ error: "slug (só letras/números/-/_) e destinationUrl obrigatorios" });
     }
     if (!(await getTenant(id))) return reply.code(404).send({ error: "tenant nao encontrado" });
     await createLink({
       tenantId: id,
-      slug: b.slug.replace(/^\/+|\/+$/g, ""),
+      slug,
       destinationUrl: b.destinationUrl,
       campaignLabel: b.campaignLabel ?? null,
+      message: b.message ?? null,
     });
-    return { ok: true, path: `/r/${b.slug}` };
+    return { ok: true, slug, path: `/r/${slug}` };
   });
 
   app.get("/tenants/:id/dashboard", async (req, reply) => {
