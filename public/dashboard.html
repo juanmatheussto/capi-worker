@@ -94,9 +94,12 @@
       </div>
       <p class="muted" style="margin:12px 0 4px">Webhook (para onde a Evolution manda os eventos):</p>
       <div class="row">
+        <button id="whUrlBtn" class="ghost">mostrar URL correta (com secret real)</button>
         <button id="whCheck" class="ghost">ver webhook atual</button>
-        <input id="whUrl" placeholder="http://PROJETO_capi-api:8080/webhooks/evolution/TENANT" size="42" />
-        <button id="whSet">reconfigurar</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <input id="whUrl" placeholder="cole a URL interna aqui" size="52" />
+        <button id="whSet">reconfigurar na Evolution</button>
       </div>
       <div id="whOut" class="muted" style="margin-top:6px;white-space:pre-wrap;word-break:break-all"></div>
     </details>
@@ -212,6 +215,17 @@ $("#evoSave").onclick = async () => {
     $("#connMsg").textContent = "instância salva";
     checkConn();
   } catch (e) { $("#connMsg").innerHTML = `<span class="err">${e.message}</span>`; }
+};
+
+$("#whUrlBtn").onclick = async () => {
+  $("#whOut").textContent = "...";
+  try {
+    const r = await api(`/tenants/${store.tenant}/webhook-url`);
+    $("#whOut").textContent =
+      "WEBHOOK_GLOBAL_URL (Evolution mesmo host):\n" + r.interna +
+      "\n\n(troque <projeto> pelo nome do projeto Easypanel, ex: dutra)\n\nsecret real: " + r.secret;
+    $("#whUrl").value = r.interna;
+  } catch (e) { $("#whOut").innerHTML = `<span class="err">${e.message}</span>`; }
 };
 
 $("#whCheck").onclick = async () => {

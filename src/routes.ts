@@ -220,6 +220,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, qr: created.qr, webhook };
   });
 
+  // devolve a URL exata do webhook (com o secret REAL do banco) p/ colar na Evolution
+  app.get("/tenants/:id/webhook-url", async (req, reply) => {
+    if (!requireAdmin(req, reply)) return;
+    const { id } = req.params as { id: string };
+    const tenant = await getTenant(id);
+    if (!tenant) return reply.code(404).send({ error: "tenant nao encontrado" });
+    const path = `/webhooks/evolution/${id}?secret=${encodeURIComponent(tenant.webhook_secret)}`;
+    return {
+      publica: `${config.publicBaseUrl.replace(/\/+$/, "")}${path}`,
+      interna: `http://<projeto>_capi-api:8080${path}`,
+      secret: tenant.webhook_secret,
+      hint: "Evolution no mesmo host -> use a interna (troque <projeto> pelo nome do projeto Easypanel).",
+    };
+  });
+
   // ver o webhook configurado na Evolution (debug)
   app.get("/tenants/:id/webhook", async (req, reply) => {
     if (!requireAdmin(req, reply)) return;
