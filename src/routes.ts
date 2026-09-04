@@ -18,6 +18,7 @@ import {
   listWaConversations,
   listWaMessages,
   waStats,
+  waResponseBuckets,
   saveWaMessage,
   updateWaStatus,
   listEvents,
@@ -109,7 +110,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const expected = "Basic " + Buffer.from(`${bUser}:${bPass}`).toString("base64");
     app.addHook("onRequest", async (req, reply) => {
       const p = (req.url.split("?")[0] || "/").replace(/\/+$/, "") || "/";
-      const guarded = p === "/" || p === "/dashboard" || p === "/tenants" || p.startsWith("/tenants/");
+      const guarded =
+        p === "/" || p === "/dashboard" || p === "/conversas" ||
+        p === "/tenants" || p.startsWith("/tenants/");
       if (!guarded) return;
       if (!eqConst(String(req.headers.authorization ?? ""), expected)) {
         reply.header("www-authenticate", 'Basic realm="capi-worker"').code(401).send("auth necessária");
@@ -126,6 +129,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   };
   app.get("/", serveDash);
   app.get("/dashboard", serveDash);
+
+  // painel de analise de conversas (so mensagens)
+  app.get("/conversas", async (_req, reply) => {
+    const html = await readFile(join(here, "../public/conversas.html"), "utf8");
+    reply.header("content-type", "text/html; charset=utf-8").send(html);
+  });
 
   // ---- redirect + contagem de cliques do link da oferta ---------
   app.get("/r/:slug", async (req, reply) => {
@@ -478,7 +487,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/tenants/:id/wa/stats", async (req, reply) => {
     if (!requireAdmin(req, reply)) return;
     const { id } = req.params as { id: string };
-    return await waStats(id);
+    return { ...(await waStats(id)), buckets: await waResponseBuckets(id) };
   });
 
   app.get("/tenants/:id/wa/conversations", async (req, reply) => {

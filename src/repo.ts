@@ -759,3 +759,40 @@ export async function waStats(tenantId: string): Promise<Record<string, unknown>
   );
   return rows[0] ?? {};
 }
+
+/**
+ * Distribuicao do tempo de primeira resposta contra a Regra 7 do playbook
+ * ("o cliente nao espera mais que 60 minutos"), mais as conversas que estao
+ * aguardando resposta agora (ultima mensagem foi do cliente).
+ */
+export async function waResponseBuckets(tenantId: string): Promise<Record<string, unknown>> {
+  const { rows } = await pool.query(
+    `with conv as (
+       select contact_phone,
+              count(*) filter (where direction = 'out')     as enviadas,
+              min(msg_ts) filter (where direction = 'in')   as t_in,
+              min(msg_ts) filter (where direction = 'out')  as t_out,
+              max(msg_ts)                                   as ultima_em,
+              (array_agg(direction order by msg_ts desc))[1] as ultima_direcao
+         from wa_messages
+        where tenant_id = $1 and contact_phone is not null
+        group by contact_phone
+     ), c as (
+       select *, extract(epoch from (t_out - t_in)) as resp from conv
+     )
+     select
+       count(*) filter (where resp <= 900)                        as ate_15min,
+       count(*) filter (where resp > 900 and resp <= 3600)        as ate_60min,
+       count(*) filter (where resp > 3600 and resp <= 86400)      as acima_60min,
+       count(*) filter (where resp > 86400)                       as acima_24h,
+       count(*) filter (where enviadas = 0)                       as nunca_respondidas,
+       count(*) filter (where ultima_direcao = 'in')              as aguardando_agora,
+       count(*) filter (where ultima_direcao = 'in'
+                          and ultima_em < now() - interval '1 hour') as aguardando_ha_mais_de_1h,
+       count(*) filter (where ultima_direcao = 'in'
+                          and ultima_em < now() - interval '1 day')  as aguardando_ha_mais_de_1d
+       from c`,
+    [tenantId],
+  );
+  return rows[0] ?? {};
+}

@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Análise de Conversas — Dutra Viagens</title>
+<style>
+  :root {
+    --bg:#F6F1E7; --card:#FFFCF6; --ink:#2E2A24; --mut:#8A8175; --line:#E3DACA;
+    --ok:#2E7D5B; --warn:#B7791F; --bad:#B4472E; --crit:#8C2F1F; --accent:#1F4E46;
+    color-scheme: light;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.55 ui-serif, Georgia, "Times New Roman", serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:28px 22px 60px; }
+  header.top { border-bottom:2px solid var(--ink); padding-bottom:14px; margin-bottom:6px; }
+  h1 { font-size:34px; margin:0; letter-spacing:-.5px; }
+  .sub { color:var(--mut); font-size:13px; margin-top:4px;
+         font-family:ui-sans-serif,system-ui,sans-serif; }
+  .cfg { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:14px 0 22px;
+         font-family:ui-sans-serif,system-ui,sans-serif; font-size:13px; }
+  input, select, button { font:inherit; font-family:ui-sans-serif,system-ui,sans-serif; }
+  input, select { background:var(--card); color:var(--ink); border:1px solid var(--line);
+                  border-radius:7px; padding:7px 10px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:7px;
+           padding:8px 14px; font-weight:600; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  button.sm { padding:3px 9px; font-size:12px; }
+
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:1.2px; color:var(--mut);
+       font-family:ui-sans-serif,system-ui,sans-serif; font-weight:700;
+       margin:34px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px; }
+  .kpi { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
+  .kpi .lbl { font-family:ui-sans-serif,system-ui,sans-serif; font-size:11px;
+              text-transform:uppercase; letter-spacing:.8px; color:var(--mut); }
+  .kpi .val { font-size:36px; font-weight:700; line-height:1.1; margin:6px 0 2px; letter-spacing:-1px; }
+  .kpi .foot { font-family:ui-sans-serif,system-ui,sans-serif; font-size:12px; color:var(--mut); }
+  .kpi.alert { border-color:var(--bad); }
+  .kpi.alert .val { color:var(--bad); }
+
+  /* régua da regra 7 */
+  .rule { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; }
+  .rule .quote { font-style:italic; color:var(--mut); font-size:14px;
+                 border-left:3px solid var(--line); padding-left:12px; margin-bottom:16px; }
+  .bar { display:flex; height:30px; border-radius:6px; overflow:hidden; border:1px solid var(--line); }
+  .bar div { display:flex; align-items:center; justify-content:center; color:#fff;
+             font-family:ui-sans-serif,system-ui,sans-serif; font-size:12px; font-weight:700; }
+  .legend { display:flex; gap:18px; flex-wrap:wrap; margin-top:12px;
+            font-family:ui-sans-serif,system-ui,sans-serif; font-size:12px; color:var(--mut); }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; }
+
+  table { width:100%; border-collapse:collapse; background:var(--card);
+          border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  th, td { text-align:left; padding:11px 12px; border-bottom:1px solid var(--line); font-size:14px; }
+  th { font-family:ui-sans-serif,system-ui,sans-serif; font-size:11px; text-transform:uppercase;
+       letter-spacing:.8px; color:var(--mut); font-weight:700; background:#F1EADC; }
+  tr:last-child td { border-bottom:0; }
+  .nm { font-weight:700; }
+  .ph { color:var(--mut); font-size:12px; font-family:ui-sans-serif,system-ui,sans-serif; }
+  .tag { display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:700;
+         font-family:ui-sans-serif,system-ui,sans-serif; color:#fff; }
+  .t-ok{background:var(--ok)} .t-warn{background:var(--warn)} .t-bad{background:var(--bad)}
+  .t-crit{background:var(--crit)} .t-ad{background:var(--accent)}
+  .snippet { color:var(--mut); font-size:13px; }
+  .muted { color:var(--mut); font-size:13px; font-family:ui-sans-serif,system-ui,sans-serif; }
+  .err { color:var(--bad); font-size:13px; font-family:ui-sans-serif,system-ui,sans-serif; }
+
+  .thread { background:var(--card); border:1px solid var(--line); border-radius:12px;
+            padding:18px; margin-top:16px; }
+  .msgs { max-height:460px; overflow:auto; margin-top:12px; }
+  .b { display:inline-block; max-width:74%; border-radius:12px; padding:9px 13px; margin:5px 0;
+       font-size:14px; }
+  .b.in  { background:#EDE5D6; }
+  .b.out { background:#DCE9E2; }
+  .b .when { font-family:ui-sans-serif,system-ui,sans-serif; font-size:11px;
+             color:var(--mut); margin-top:3px; }
+  .gap { font-family:ui-sans-serif,system-ui,sans-serif; font-size:11px; color:var(--mut);
+         text-align:center; margin:6px 0; }
+  .gap.slow { color:var(--bad); font-weight:700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>Análise de Conversas</h1>
+    <div class="sub">Dutra Viagens · WhatsApp oficial · régua do Playbook de Vendas</div>
+  </header>
+
+  <div class="cfg">
+    <input id="tenant" placeholder="tenant" size="8" />
+    <input id="apikey" placeholder="api key" type="password" size="20" />
+    <button id="save" class="ghost">Salvar</button>
+    <span id="msg" class="muted"></span>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <h2>Regra 7 — o cliente não espera mais que 60 minutos</h2>
+  <div class="rule">
+    <div class="quote">"O cliente não espera mais que 60 minutos pelo seu atendimento.
+      Demorou, esfriou, perdeu." — Playbook de Vendas, Regras de Ouro</div>
+    <div class="bar" id="bar"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <h2>Aguardando resposta agora</h2>
+  <div id="waiting"></div>
+
+  <h2>Todas as conversas</h2>
+  <div class="cfg" style="margin:0 0 12px">
+    <input id="q" placeholder="buscar no texto das mensagens" size="30" />
+    <select id="filtro">
+      <option value="">todas</option>
+      <option value="waiting">aguardando resposta</option>
+      <option value="never">nunca respondidas</option>
+      <option value="slow">responderam depois de 60min</option>
+      <option value="ad">vieram de anúncio</option>
+    </select>
+    <button id="go">Buscar</button>
+  </div>
+  <div id="list"></div>
+  <div id="thread"></div>
+
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const store = {
+  get tenant(){ return localStorage.getItem("cv_tenant") || "dutra"; },
+  set tenant(v){ localStorage.setItem("cv_tenant", v); },
+  get key(){ return localStorage.getItem("cv_key") || ""; },
+  set key(v){ localStorage.setItem("cv_key", v); },
+};
+$("#tenant").value = store.tenant;
+$("#apikey").value = store.key;
+$("#save").onclick = () => {
+  store.tenant = $("#tenant").value.trim();
+  store.key = $("#apikey").value.trim();
+  load();
+};
+
+async function api(path) {
+  const r = await fetch(location.origin + path, { headers: { "x-api-key": store.key } });
+  const b = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(b.error || ("HTTP " + r.status));
+  return b;
+}
+
+const esc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) =>
+  ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+
+const fmtDate = (v) => v ? new Date(v).toLocaleString("pt-BR",
+  { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" }) : "—";
+
+function fmtDur(sec) {
+  if (sec == null) return "—";
+  const n = Number(sec);
+  if (n < 60) return n + "s";
+  if (n < 3600) return Math.round(n/60) + "min";
+  if (n < 86400) return Math.floor(n/3600) + "h" + String(Math.round((n%3600)/60)).padStart(2,"0");
+  return Math.floor(n/86400) + "d";
+}
+
+/** Classifica contra a Regra 7: 60 minutos e o teto. */
+function classify(c) {
+  if (Number(c.enviadas) === 0) return { cls:"t-crit", txt:"nunca respondida" };
+  const s = Number(c.primeira_resposta_seg);
+  if (!Number.isFinite(s)) return { cls:"", txt:"—" };
+  if (s <= 900)  return { cls:"t-ok",   txt:fmtDur(s) };
+  if (s <= 3600) return { cls:"t-warn", txt:fmtDur(s) };
+  return { cls:"t-bad", txt:fmtDur(s) };
+}
+
+let CONVS = [];
+
+async function load() {
+  if (!store.tenant || !store.key) { $("#msg").textContent = "preencha tenant + api key"; return; }
+  $("#msg").textContent = "";
+  const t = store.tenant;
+
+  let st;
+  try { st = await api(`/tenants/${t}/wa/stats`); }
+  catch (e) { $("#msg").innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
+  const b = st.buckets || {};
+
+  const conversas = Number(st.conversas || 0);
+  const dentro = Number(b.ate_15min||0) + Number(b.ate_60min||0);
+  const respondidas = dentro + Number(b.acima_60min||0) + Number(b.acima_24h||0);
+  const pctDentro = respondidas ? Math.round((dentro / respondidas) * 100) : 0;
+
+  $("#kpis").innerHTML = `
+    <div class="kpi"><div class="lbl">Conversas</div><div class="val">${conversas}</div>
+      <div class="foot">${st.mensagens||0} mensagens desde ${fmtDate(st.desde)}</div></div>
+    <div class="kpi"><div class="lbl">Dentro da regra</div><div class="val">${pctDentro}%</div>
+      <div class="foot">responderam em até 60 min</div></div>
+    <div class="kpi"><div class="lbl">1ª resposta (mediana)</div>
+      <div class="val">${fmtDur(st.primeira_resposta_mediana_seg)}</div>
+      <div class="foot">teto do playbook: 60 min</div></div>
+    <div class="kpi ${Number(b.aguardando_ha_mais_de_1h||0) ? "alert" : ""}">
+      <div class="lbl">Esperando agora</div><div class="val">${b.aguardando_agora||0}</div>
+      <div class="foot">${b.aguardando_ha_mais_de_1h||0} há mais de 1h · ${b.aguardando_ha_mais_de_1d||0} há mais de 1 dia</div></div>
+    <div class="kpi ${Number(b.nunca_respondidas||0) ? "alert" : ""}">
+      <div class="lbl">Nunca respondidas</div><div class="val">${b.nunca_respondidas||0}</div>
+      <div class="foot">${st.de_anuncio||0} conversas vieram de anúncio</div></div>`;
+
+  // régua
+  const segs = [
+    { n:Number(b.ate_15min||0),   c:"var(--ok)",   l:"até 15 min" },
+    { n:Number(b.ate_60min||0),   c:"var(--warn)", l:"15 a 60 min" },
+    { n:Number(b.acima_60min||0), c:"var(--bad)",  l:"mais de 1h" },
+    { n:Number(b.acima_24h||0),   c:"#6B2A1C",     l:"mais de 1 dia" },
+    { n:Number(b.nunca_respondidas||0), c:"var(--crit)", l:"nunca respondida" },
+  ];
+  const tot = segs.reduce((a, s) => a + s.n, 0);
+  $("#bar").innerHTML = tot
+    ? segs.filter((s) => s.n).map((s) =>
+        `<div style="width:${(s.n/tot)*100}%;background:${s.c}" title="${s.l}: ${s.n}">${
+          (s.n/tot) > 0.08 ? s.n : ""}</div>`).join("")
+    : '<div style="width:100%;background:#DDD4C4;color:var(--mut)">sem dados</div>';
+  $("#legend").innerHTML = segs.map((s) =>
+    `<span><i style="background:${s.c}"></i>${s.l} — <b>${s.n}</b></span>`).join("");
+
+  const { conversations } = await api(`/tenants/${t}/wa/conversations?limit=500`);
+  CONVS = conversations;
+
+  const waiting = conversations
+    .filter((c) => c.ultima_direcao === "in")
+    .sort((a, b2) => new Date(a.ultima_em) - new Date(b2.ultima_em));
+  $("#waiting").innerHTML = waiting.length ? tableOf(waiting, true)
+    : '<div class="muted">Ninguém esperando resposta. 👌</div>';
+
+  render();
+}
+
+function tableOf(rows, showWait) {
+  const now = Date.now();
+  return `<table>
+    <tr><th>Contato</th><th>Última mensagem</th>
+        <th>${showWait ? "Esperando há" : "Quando"}</th>
+        <th>1ª resposta</th><th>Msgs</th><th></th></tr>
+    ${rows.map((c) => {
+      const k = classify(c);
+      const esperando = Math.round((now - new Date(c.ultima_em).getTime()) / 1000);
+      const lento = esperando > 3600;
+      return `<tr>
+        <td><span class="nm">${esc(c.contact_name || "—")}</span><br>
+            <span class="ph">${esc(c.contact_phone)}</span>
+            ${c.ctwa_clid ? ' <span class="tag t-ad">anúncio</span>' : ""}</td>
+        <td class="snippet">${c.ultima_direcao === "in" ? "◂ " : "▸ "}${
+            esc(String(c.ultima_mensagem || "").slice(0, 68))}</td>
+        <td>${showWait
+              ? `<span class="${lento ? "tag t-bad" : "muted"}">${fmtDur(esperando)}</span>`
+              : `<span class="muted">${fmtDate(c.ultima_em)}</span>`}</td>
+        <td><span class="tag ${k.cls}">${k.txt}</span></td>
+        <td class="muted">${c.total}</td>
+        <td><button class="ghost sm" data-th="${esc(c.contact_phone)}">ver</button></td>
+      </tr>`;
+    }).join("")}
+  </table>`;
+}
+
+function render() {
+  const f = $("#filtro").value;
+  let rows = CONVS;
+  if (f === "waiting") rows = rows.filter((c) => c.ultima_direcao === "in");
+  if (f === "never")   rows = rows.filter((c) => Number(c.enviadas) === 0);
+  if (f === "slow")    rows = rows.filter((c) => Number(c.primeira_resposta_seg) > 3600);
+  if (f === "ad")      rows = rows.filter((c) => c.ctwa_clid);
+  $("#list").innerHTML = rows.length ? tableOf(rows, false)
+    : '<div class="muted">Nenhuma conversa nesse filtro.</div>';
+}
+
+$("#filtro").onchange = render;
+
+$("#go").onclick = async () => {
+  const q = $("#q").value.trim();
+  if (!q) { $("#thread").innerHTML = ""; return render(); }
+  const { messages } = await api(
+    `/tenants/${store.tenant}/wa/messages?q=${encodeURIComponent(q)}&limit=300`);
+  $("#thread").innerHTML = messages.length
+    ? `<div class="thread"><b>${messages.length} mensagem(ns) com "${esc(q)}"</b>
+        <table style="margin-top:10px">
+        <tr><th>Quando</th><th>Contato</th><th></th><th>Mensagem</th></tr>
+        ${messages.map((m) => `<tr><td class="muted">${fmtDate(m.msg_ts)}</td>
+          <td>${esc(m.contact_name || m.contact_phone)}</td>
+          <td>${m.direction === "in" ? "◂" : "▸"}</td>
+          <td>${esc(m.body || "")}</td></tr>`).join("")}
+        </table></div>`
+    : '<div class="muted">Nada encontrado.</div>';
+};
+
+document.body.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-th]");
+  if (b) openThread(b.dataset.th);
+});
+
+/** Thread com os intervalos entre mensagens: e ali que a demora fica visivel. */
+async function openThread(phone) {
+  const { messages } = await api(
+    `/tenants/${store.tenant}/wa/messages?phone=${encodeURIComponent(phone)}&limit=500`);
+  const asc = messages.slice().reverse();
+  let prev = null;
+  const body = asc.map((m) => {
+    let gap = "";
+    if (prev && prev.direction === "in" && m.direction === "out") {
+      const s = (new Date(m.msg_ts) - new Date(prev.msg_ts)) / 1000;
+      gap = `<div class="gap ${s > 3600 ? "slow" : ""}">respondido ${fmtDur(s)} depois${
+        s > 3600 ? " — fora da regra" : ""}</div>`;
+    }
+    prev = m;
+    return gap + `<div style="text-align:${m.direction === "in" ? "left" : "right"}">
+      <div class="b ${m.direction}">${esc(m.body || "(" + (m.msg_type || "sem texto") + ")")}
+        <div class="when">${fmtDate(m.msg_ts)}${m.status ? " · " + esc(m.status) : ""}</div>
+      </div></div>`;
+  }).join("");
+  $("#thread").innerHTML = `<div class="thread">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <b>${esc(phone)}</b><button class="ghost sm" id="cl">fechar</button></div>
+      <div class="msgs">${body}</div></div>`;
+  $("#cl").onclick = () => { $("#thread").innerHTML = ""; };
+  $("#thread").scrollIntoView({ behavior:"smooth", block:"nearest" });
+}
+
+load();
+setInterval(() => load().catch(() => {}), 60000);
+</script>
+</body>
+</html>
