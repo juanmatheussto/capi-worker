@@ -145,6 +145,26 @@
     </table>
     <p class="muted">Cliques do bot de preview do WhatsApp são detectados e não contam. O slug vira <code id="lorigin"></code>/r/slug.</p>
   </section>
+
+  <section id="waSec">
+    <h2>Mensagens do WhatsApp</h2>
+    <div class="grid" id="waStats"></div>
+
+    <div class="row" style="margin-top:14px">
+      <input id="waQ" placeholder="buscar no texto das mensagens" size="28" />
+      <select id="waDir">
+        <option value="">todas</option>
+        <option value="in">só recebidas</option>
+        <option value="out">só enviadas</option>
+      </select>
+      <label class="muted"><input type="checkbox" id="waUnans" style="vertical-align:-2px" /> só sem resposta</label>
+      <button id="waGo" class="ghost">Buscar</button>
+      <span id="waMsg" class="muted"></span>
+    </div>
+
+    <div id="waList" style="margin-top:12px"></div>
+    <div id="waThread"></div>
+  </section>
 </main>
 
 <script>
@@ -481,9 +501,135 @@ function refreshAll() {
   if (!store.tenant || !store.key) { $("#hdrmsg").textContent = "preencha tenant + api key"; return; }
   checkConn();
   refreshDash();
+  refreshWa().catch((e) => { $("#waMsg").textContent = e.message; });
 }
 refreshAll();
 setInterval(refreshDash, 30000);
+setInterval(() => refreshWa().catch(() => {}), 30000);
+
+// ---------------------------------------------------- mensagens do WhatsApp
+
+function fmtDate(v) {
+  if (!v) return "—";
+  return new Date(v).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+/** segundos -> "2h 15m" / "45s"; o que importa e a ordem de grandeza */
+function fmtDur(sec) {
+  if (sec == null) return "—";
+  const n = Number(sec);
+  if (n < 60) return n + "s";
+  if (n < 3600) return Math.round(n / 60) + "m";
+  if (n < 86400) return Math.floor(n / 3600) + "h " + Math.round((n % 3600) / 60) + "m";
+  return Math.floor(n / 86400) + "d";
+}
+
+function esc(t) {
+  return String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+async function refreshWa() {
+  const t = store.tenant;
+  if (!t || !store.key) return;
+
+  try {
+    const st = await api(`/tenants/${t}/wa/stats`);
+    const semResp = Number(st.sem_resposta || 0);
+    const conversas = Number(st.conversas || 0);
+    const pct = conversas ? Math.round((semResp / conversas) * 100) : 0;
+    $("#waStats").innerHTML = `
+      <div class="card"><div class="label">Mensagens</div><div class="big">${st.mensagens || 0}</div>
+        <div class="label"><span class="in">${st.recebidas || 0} recebidas</span> · <span class="out">${st.enviadas || 0} enviadas</span></div></div>
+      <div class="card"><div class="label">Conversas</div><div class="big">${conversas}</div>
+        <div class="label">desde ${fmtDate(st.desde)}</div></div>
+      <div class="card"><div class="label">Sem resposta</div><div class="big">${semResp}</div>
+        <div class="label">${pct}% das conversas</div></div>
+      <div class="card"><div class="label">1ª resposta (mediana)</div><div class="big">${fmtDur(st.primeira_resposta_mediana_seg)}</div>
+        <div class="label">${st.de_anuncio || 0} vindas de anúncio</div></div>`;
+  } catch (e) {
+    $("#waStats").innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    return;
+  }
+
+  const unans = $("#waUnans").checked ? "&unanswered=1" : "";
+  let conversations = [];
+  try {
+    ({ conversations } = await api(`/tenants/${t}/wa/conversations?limit=200${unans}`));
+  } catch (e) {
+    $("#waList").innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    return;
+  }
+  if (!conversations.length) {
+    $("#waList").innerHTML = '<div class="muted">Nenhuma conversa ainda.</div>';
+    return;
+  }
+  $("#waList").innerHTML = `<table>
+    <tr><th>Contato</th><th>Última mensagem</th><th>Quando</th><th>1ª resposta</th><th>Msgs</th><th></th></tr>
+    ${conversations.map((c) => `<tr>
+      <td><b>${esc(c.contact_name || "—")}</b><br><span class="muted">${esc(c.contact_phone)}</span>
+        ${c.ctwa_clid ? '<br><span class="pill open" style="font-size:10px">anúncio</span>' : ""}</td>
+      <td><span class="${c.ultima_direcao === "in" ? "in" : "out"}">${c.ultima_direcao === "in" ? "◂" : "▸"}</span>
+        ${esc(String(c.ultima_mensagem || "").slice(0, 70))}</td>
+      <td class="muted">${fmtDate(c.ultima_em)}</td>
+      <td>${Number(c.enviadas) === 0 ? '<span class="pill off" style="font-size:10px">sem resposta</span>' : fmtDur(c.primeira_resposta_seg)}</td>
+      <td class="muted">${c.total}</td>
+      <td><button class="ghost" style="padding:2px 8px;font-size:11px" data-wathread="${esc(c.contact_phone)}">abrir</button></td>
+    </tr>`).join("")}
+  </table>`;
+}
+
+/** Abre a thread de um contato: a conversa inteira, em ordem cronologica. */
+async function openWaThread(phone) {
+  const t = store.tenant;
+  const { messages } = await api(`/tenants/${t}/wa/messages?phone=${encodeURIComponent(phone)}&limit=500`);
+  const asc = messages.slice().reverse();
+  $("#waThread").innerHTML = `
+    <div class="card" style="margin-top:14px">
+      <div class="row" style="justify-content:space-between">
+        <b>${esc(phone)}</b>
+        <button class="ghost" style="padding:2px 8px;font-size:11px" id="waClose">fechar</button>
+      </div>
+      <div style="max-height:420px;overflow:auto;margin-top:10px">
+        ${asc.map((m) => `<div style="margin:6px 0;text-align:${m.direction === "in" ? "left" : "right"}">
+          <div style="display:inline-block;max-width:75%;background:${m.direction === "in" ? "#1f2c33" : "#005c4b"};
+                      border-radius:8px;padding:6px 10px;text-align:left">
+            ${esc(m.body || "(" + (m.msg_type || "sem texto") + ")")}
+            <div class="muted" style="font-size:11px;margin-top:2px">${fmtDate(m.msg_ts)}${m.status ? " · " + esc(m.status) : ""}</div>
+          </div></div>`).join("")}
+      </div>
+    </div>`;
+  $("#waClose").onclick = () => { $("#waThread").innerHTML = ""; };
+  $("#waThread").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+$("#waList").onclick = (e) => {
+  const b = e.target.closest("[data-wathread]");
+  if (b) openWaThread(b.dataset.wathread);
+};
+$("#waUnans").onchange = refreshWa;
+
+$("#waGo").onclick = async () => {
+  const t = store.tenant;
+  const q = $("#waQ").value.trim();
+  const dir = $("#waDir").value;
+  if (!q && !dir) { $("#waThread").innerHTML = ""; return refreshWa(); }
+  const params = new URLSearchParams({ limit: "300" });
+  if (q) params.set("q", q);
+  if (dir) params.set("direction", dir);
+  const { messages } = await api(`/tenants/${t}/wa/messages?${params}`);
+  $("#waMsg").textContent = `${messages.length} resultado(s)`;
+  $("#waThread").innerHTML = messages.length
+    ? `<div class="card" style="margin-top:14px"><table>
+        <tr><th>Quando</th><th>Contato</th><th></th><th>Mensagem</th></tr>
+        ${messages.map((m) => `<tr>
+          <td class="muted">${fmtDate(m.msg_ts)}</td>
+          <td>${esc(m.contact_name || m.contact_phone)}</td>
+          <td class="${m.direction === "in" ? "in" : "out"}">${m.direction === "in" ? "◂" : "▸"}</td>
+          <td>${esc(m.body || "")}</td></tr>`).join("")}
+      </table></div>`
+    : '<div class="muted" style="margin-top:14px">Nada encontrado.</div>';
+};
+
 </script>
 </body>
 </html>
