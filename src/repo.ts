@@ -637,15 +637,51 @@ export async function saveWaMessage(tenantId: string, m: WaMessage): Promise<voi
   );
 }
 
-/** Só avança o status; reentregas fora de ordem não regridem delivered -> sent. */
+/**
+ * Registra a mensagem de saida a partir do status.
+ *
+ * A Cloud API nao entrega o conteudo do que o vendedor respondeu (quem envia e
+ * a Kommo, por outro app), so o status. Mas o status carrega `recipient_id` e
+ * `timestamp` — o suficiente para saber QUE houve resposta e QUANDO, que e o
+ * que a regua de 60 minutos precisa. O texto fica indisponivel: `body` nulo.
+ *
+ * `msg_ts` fica com o menor timestamp visto (o `sent`), mesmo que um `read`
+ * chegue antes por reentrega fora de ordem.
+ */
 export async function updateWaStatus(tenantId: string, s: WaStatus): Promise<void> {
+  const rank = (st: string) => ({ sent: 1, delivered: 2, read: 3, failed: 4 }[st] ?? 0);
   await pool.query(
-    `update wa_messages
-        set status = $3, status_at = $4
-      where tenant_id = $1 and wamid = $2
-        and (status_at is null or status_at <= $4)`,
-    [tenantId, s.wamid, s.status, s.statusAt],
+    `insert into wa_messages
+       (tenant_id, wamid, phone_number_id, direction, contact_phone, msg_type,
+        status, status_at, msg_ts, payload)
+     values ($1,$2,$3,'out',$4,'outbound',$5,$6,$6,'{}'::jsonb)
+     on conflict (tenant_id, wamid) do update
+       set status    = case when $7 >= coalesce(
+                                 (case wa_messages.status
+                                    when 'sent' then 1 when 'delivered' then 2
+                                    when 'read' then 3 when 'failed' then 4 else 0 end), 0)
+                            then excluded.status else wa_messages.status end,
+           status_at = greatest(coalesce(wa_messages.status_at, excluded.status_at),
+                                excluded.status_at),
+           msg_ts    = least(wa_messages.msg_ts, excluded.msg_ts)`,
+    [tenantId, s.wamid, s.phoneNumberId ?? null, s.recipientPhone ?? null,
+     s.status, s.statusAt, rank(s.status)],
   );
+}
+
+/** Reprocessa os payloads crus ja salvos. Idempotente. */
+export async function waBackfill(tenantId: string): Promise<{ raws: number }> {
+  const { rows } = await pool.query<{ payload: Record<string, unknown> }>(
+    "select payload from wa_webhook_raw where tenant_id = $1 order by id",
+    [tenantId],
+  );
+  const { parseWebhook } = await import("./core/whatsapp.js");
+  for (const r of rows) {
+    const { messages, statuses } = parseWebhook(r.payload as Record<string, unknown>);
+    for (const m of messages) await saveWaMessage(tenantId, m);
+    for (const s of statuses) await updateWaStatus(tenantId, s);
+  }
+  return { raws: rows.length };
 }
 
 /**

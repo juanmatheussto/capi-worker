@@ -55,6 +55,20 @@ describe("parseWebhook", () => {
     expect(messages[0].contactPhone).toBe("+5551995667447");
   });
 
+  it("extrai recipient_id do status — e dele que sai a prova de resposta", () => {
+    const st = {
+      entry: [{ id: "822574027520702", changes: [{ field: "messages", value: {
+        metadata: { display_phone_number: "5511913387523", phone_number_id: "968454583025984" },
+        statuses: [{ id: "wamid.OUT", status: "sent", timestamp: "1788350200",
+                     recipient_id: "5511964191406" }],
+      } }] }],
+    };
+    const { statuses } = parseWebhook(st);
+    expect(statuses[0].recipientPhone).toBe("+5511964191406");
+    expect(statuses[0].phoneNumberId).toBe("968454583025984");
+    expect(statuses[0].statusAt.getTime()).toBe(1788350200 * 1000);
+  });
+
   it("le confirmacoes de entrega", () => {
     const st = {
       entry: [

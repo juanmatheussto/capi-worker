@@ -21,6 +21,9 @@ export type WaStatus = {
   wamid: string;
   status: string;
   statusAt: Date;
+  /** telefone do cliente que recebeu — e a unica pista de que houve resposta */
+  recipientPhone?: string;
+  phoneNumberId?: string;
 };
 
 /**
@@ -111,11 +114,16 @@ export function parseWebhook(body: Record<string, any>): {
         });
       }
 
+      // A Cloud API nao faz eco de mensagens enviadas: o que a Kommo responde
+      // nunca chega como `messages`. So o status chega — e e dele que sai a
+      // prova de que houve resposta, e quando.
       for (const s of value?.statuses ?? []) {
         statuses.push({
           wamid: String(s?.id ?? ""),
           status: String(s?.status ?? ""),
           statusAt: tsToDate(s?.timestamp),
+          recipientPhone: s?.recipient_id ? toE164(String(s.recipient_id)) : undefined,
+          phoneNumberId,
         });
       }
     }

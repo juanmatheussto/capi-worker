@@ -110,6 +110,12 @@
   <h2>Aguardando resposta agora</h2>
   <div id="waiting"></div>
 
+  <p class="muted" style="margin:-2px 0 16px">
+    O WhatsApp entrega o texto do que o <b>cliente</b> escreve. O que a equipe responde
+    chega apenas como confirmação de envio — sabemos <b>que</b> respondeu e <b>quando</b>,
+    mas não o conteúdo. Os tempos acima são reais; as respostas aparecem sem texto.
+  </p>
+
   <h2>Todas as conversas</h2>
   <div class="cfg" style="margin:0 0 12px">
     <input id="q" placeholder="buscar no texto das mensagens" size="30" />
@@ -251,7 +257,9 @@ function tableOf(rows, showWait) {
             <span class="ph">${esc(c.contact_phone)}</span>
             ${c.ctwa_clid ? ' <span class="tag t-ad">anúncio</span>' : ""}</td>
         <td class="snippet">${c.ultima_direcao === "in" ? "◂ " : "▸ "}${
-            esc(String(c.ultima_mensagem || "").slice(0, 68))}</td>
+            c.ultima_mensagem
+              ? esc(String(c.ultima_mensagem).slice(0, 68))
+              : "<i>resposta enviada (sem texto)</i>"}</td>
         <td>${showWait
               ? `<span class="${lento ? "tag t-bad" : "muted"}">${fmtDur(esperando)}</span>`
               : `<span class="muted">${fmtDate(c.ultima_em)}</span>`}</td>
@@ -313,7 +321,11 @@ async function openThread(phone) {
     }
     prev = m;
     return gap + `<div style="text-align:${m.direction === "in" ? "left" : "right"}">
-      <div class="b ${m.direction}">${esc(m.body || "(" + (m.msg_type || "sem texto") + ")")}
+      <div class="b ${m.direction}">${
+        m.body ? esc(m.body)
+               : (m.direction === "out"
+                  ? "<i>resposta enviada — conteúdo não disponível</i>"
+                  : "<i>(" + esc(m.msg_type || "sem texto") + ")</i>")}
         <div class="when">${fmtDate(m.msg_ts)}${m.status ? " · " + esc(m.status) : ""}</div>
       </div></div>`;
   }).join("");

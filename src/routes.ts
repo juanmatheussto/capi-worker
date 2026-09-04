@@ -19,6 +19,7 @@ import {
   listWaMessages,
   waStats,
   waResponseBuckets,
+  waBackfill,
   saveWaMessage,
   updateWaStatus,
   listEvents,
@@ -519,6 +520,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         offset: q.offset ? Number(q.offset) : undefined,
       }),
     };
+  });
+
+  app.post("/tenants/:id/wa/backfill", async (req, reply) => {
+    if (!requireAdmin(req, reply)) return;
+    const { id } = req.params as { id: string };
+    return await waBackfill(id);
   });
 
   // ---- webhook do WhatsApp Cloud API (Meta) -----------------------
