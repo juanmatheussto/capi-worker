@@ -173,7 +173,7 @@ function fmtDur(sec) {
 
 /** Classifica contra a Regra 7: 60 minutos e o teto. */
 function classify(c) {
-  if (Number(c.enviadas) === 0) return { cls:"t-crit", txt:"nunca respondida" };
+  if (!c.primeira_resposta_em) return { cls:"t-crit", txt:"nunca respondida" };
   const s = Number(c.primeira_resposta_seg);
   if (!Number.isFinite(s)) return { cls:"", txt:"—" };
   if (s <= 900)  return { cls:"t-ok",   txt:fmtDur(s) };
@@ -275,7 +275,7 @@ function render() {
   const f = $("#filtro").value;
   let rows = CONVS;
   if (f === "waiting") rows = rows.filter((c) => c.ultima_direcao === "in");
-  if (f === "never")   rows = rows.filter((c) => Number(c.enviadas) === 0);
+  if (f === "never")   rows = rows.filter((c) => !c.primeira_resposta_em);
   if (f === "slow")    rows = rows.filter((c) => Number(c.primeira_resposta_seg) > 3600);
   if (f === "ad")      rows = rows.filter((c) => c.ctwa_clid);
   $("#list").innerHTML = rows.length ? tableOf(rows, false)

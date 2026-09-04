@@ -684,6 +684,51 @@ export async function waBackfill(tenantId: string): Promise<{ raws: number }> {
   return { raws: rows.length };
 }
 
+
+/**
+ * Base das metricas de atendimento.
+ *
+ * "Tempo de primeira resposta" so faz sentido quando a empresa responde DEPOIS
+ * do cliente falar. Muita conversa comeca com disparo ativo (out antes de
+ * qualquer in) — contar isso dava mediana negativa. Aqui `t_out` e sempre o
+ * primeiro envio posterior a primeira mensagem recebida, e conversas em que o
+ * cliente nunca falou ficam de fora da regua.
+ */
+const CONV_CTE = `
+  with base as (
+    select contact_phone, direction, msg_ts, ctwa_clid, body, contact_name
+      from wa_messages
+     where tenant_id = $1 and contact_phone is not null
+  ),
+  fin as (
+    select contact_phone, min(msg_ts) as t_in
+      from base where direction = 'in' group by contact_phone
+  ),
+  fout as (
+    select b.contact_phone, min(b.msg_ts) as t_out
+      from base b join fin f on f.contact_phone = b.contact_phone
+     where b.direction = 'out' and b.msg_ts >= f.t_in
+     group by b.contact_phone
+  ),
+  conv as (
+    select f.contact_phone,
+           max(b.contact_name)                                as contact_name,
+           count(*)                                           as total,
+           count(*) filter (where b.direction = 'in')         as recebidas,
+           count(*) filter (where b.direction = 'out')        as enviadas,
+           f.t_in                                             as primeira_recebida_em,
+           o.t_out                                            as primeira_resposta_em,
+           min(b.msg_ts)                                      as primeira_em,
+           max(b.msg_ts)                                      as ultima_em,
+           max(b.ctwa_clid)                                   as ctwa_clid,
+           extract(epoch from (o.t_out - f.t_in))::int        as primeira_resposta_seg,
+           (array_agg(b.direction order by b.msg_ts desc))[1] as ultima_direcao
+      from fin f
+      join base b on b.contact_phone = f.contact_phone
+      left join fout o on o.contact_phone = f.contact_phone
+     group by f.contact_phone, f.t_in, o.t_out
+  )`;
+
 /**
  * Lista conversas: um registro por contato, com a última mensagem e os dados
  * que interessam à auditoria de atendimento (quem falou por último, se houve
@@ -695,32 +740,13 @@ export async function listWaConversations(
 ): Promise<Record<string, unknown>[]> {
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 1000);
   const { rows } = await pool.query(
-    `with conv as (
-       select contact_phone,
-              max(contact_name)                             as contact_name,
-              count(*)                                      as total,
-              count(*) filter (where direction = 'in')      as recebidas,
-              count(*) filter (where direction = 'out')     as enviadas,
-              min(msg_ts)                                   as primeira_em,
-              max(msg_ts)                                   as ultima_em,
-              min(msg_ts) filter (where direction = 'in')   as primeira_recebida_em,
-              min(msg_ts) filter (where direction = 'out')  as primeira_resposta_em,
-              max(ctwa_clid)                                as ctwa_clid
-         from wa_messages
-        where tenant_id = $1 and contact_phone is not null
-        group by contact_phone
-     )
+    `${CONV_CTE}
      select c.*,
-            extract(epoch from (c.primeira_resposta_em - c.primeira_recebida_em))::int
-              as primeira_resposta_seg,
-            (select direction from wa_messages m
-              where m.tenant_id = $1 and m.contact_phone = c.contact_phone
-              order by m.msg_ts desc limit 1) as ultima_direcao,
-            (select body from wa_messages m
-              where m.tenant_id = $1 and m.contact_phone = c.contact_phone
-              order by m.msg_ts desc limit 1) as ultima_mensagem
+            (select b.body from base b
+              where b.contact_phone = c.contact_phone
+              order by b.msg_ts desc limit 1) as ultima_mensagem
        from conv c
-      where ($4::bool is not true or c.enviadas = 0)
+      where ($4::bool is not true or c.primeira_resposta_em is null)
       order by c.ultima_em desc
       limit $2 offset $3`,
     [tenantId, limit, Math.max(opts.offset ?? 0, 0), opts.unanswered ?? false],
@@ -771,63 +797,39 @@ export async function listWaMessages(
 /** Resumo para o topo da tela: volume, cobertura de resposta e tempo mediano. */
 export async function waStats(tenantId: string): Promise<Record<string, unknown>> {
   const { rows } = await pool.query(
-    `with conv as (
-       select contact_phone,
-              count(*) filter (where direction = 'out') as enviadas,
-              min(msg_ts) filter (where direction = 'in')  as t_in,
-              min(msg_ts) filter (where direction = 'out') as t_out
-         from wa_messages
-        where tenant_id = $1 and contact_phone is not null
-        group by contact_phone
-     )
-     select (select count(*) from wa_messages where tenant_id = $1)                        as mensagens,
-            (select count(*) from wa_messages where tenant_id = $1 and direction = 'in')   as recebidas,
-            (select count(*) from wa_messages where tenant_id = $1 and direction = 'out')  as enviadas,
+    `${CONV_CTE}
+     select (select count(*) from wa_messages where tenant_id = $1)                          as mensagens,
+            (select count(*) from wa_messages where tenant_id = $1 and direction = 'in')     as recebidas,
+            (select count(*) from wa_messages where tenant_id = $1 and direction = 'out')    as enviadas,
             (select count(*) from wa_messages where tenant_id = $1 and ctwa_clid is not null) as de_anuncio,
-            (select min(msg_ts) from wa_messages where tenant_id = $1)                     as desde,
-            count(*)                                        as conversas,
-            count(*) filter (where enviadas = 0)            as sem_resposta,
-            percentile_cont(0.5) within group (
-              order by extract(epoch from (t_out - t_in))
-            ) filter (where t_out is not null and t_in is not null)::int as primeira_resposta_mediana_seg
+            (select min(msg_ts) from wa_messages where tenant_id = $1)                       as desde,
+            count(*)                                                    as conversas,
+            count(*) filter (where primeira_resposta_em is null)         as sem_resposta,
+            percentile_cont(0.5) within group (order by primeira_resposta_seg)
+              filter (where primeira_resposta_seg is not null)::int      as primeira_resposta_mediana_seg
        from conv`,
     [tenantId],
   );
   return rows[0] ?? {};
 }
 
-/**
- * Distribuicao do tempo de primeira resposta contra a Regra 7 do playbook
- * ("o cliente nao espera mais que 60 minutos"), mais as conversas que estao
- * aguardando resposta agora (ultima mensagem foi do cliente).
- */
 export async function waResponseBuckets(tenantId: string): Promise<Record<string, unknown>> {
   const { rows } = await pool.query(
-    `with conv as (
-       select contact_phone,
-              count(*) filter (where direction = 'out')     as enviadas,
-              min(msg_ts) filter (where direction = 'in')   as t_in,
-              min(msg_ts) filter (where direction = 'out')  as t_out,
-              max(msg_ts)                                   as ultima_em,
-              (array_agg(direction order by msg_ts desc))[1] as ultima_direcao
-         from wa_messages
-        where tenant_id = $1 and contact_phone is not null
-        group by contact_phone
-     ), c as (
-       select *, extract(epoch from (t_out - t_in)) as resp from conv
-     )
+    `${CONV_CTE}
      select
-       count(*) filter (where resp <= 900)                        as ate_15min,
-       count(*) filter (where resp > 900 and resp <= 3600)        as ate_60min,
-       count(*) filter (where resp > 3600 and resp <= 86400)      as acima_60min,
-       count(*) filter (where resp > 86400)                       as acima_24h,
-       count(*) filter (where enviadas = 0)                       as nunca_respondidas,
-       count(*) filter (where ultima_direcao = 'in')              as aguardando_agora,
+       count(*) filter (where primeira_resposta_seg <= 900)                     as ate_15min,
+       count(*) filter (where primeira_resposta_seg > 900
+                          and primeira_resposta_seg <= 3600)                    as ate_60min,
+       count(*) filter (where primeira_resposta_seg > 3600
+                          and primeira_resposta_seg <= 86400)                   as acima_60min,
+       count(*) filter (where primeira_resposta_seg > 86400)                    as acima_24h,
+       count(*) filter (where primeira_resposta_em is null)                     as nunca_respondidas,
+       count(*) filter (where ultima_direcao = 'in')                            as aguardando_agora,
        count(*) filter (where ultima_direcao = 'in'
-                          and ultima_em < now() - interval '1 hour') as aguardando_ha_mais_de_1h,
+                          and ultima_em < now() - interval '1 hour')            as aguardando_ha_mais_de_1h,
        count(*) filter (where ultima_direcao = 'in'
-                          and ultima_em < now() - interval '1 day')  as aguardando_ha_mais_de_1d
-       from c`,
+                          and ultima_em < now() - interval '1 day')             as aguardando_ha_mais_de_1d
+       from conv`,
     [tenantId],
   );
   return rows[0] ?? {};
