@@ -647,3 +647,115 @@ export async function updateWaStatus(tenantId: string, s: WaStatus): Promise<voi
     [tenantId, s.wamid, s.status, s.statusAt],
   );
 }
+
+/**
+ * Lista conversas: um registro por contato, com a última mensagem e os dados
+ * que interessam à auditoria de atendimento (quem falou por último, se houve
+ * resposta da empresa, quanto tempo levou o primeiro retorno).
+ */
+export async function listWaConversations(
+  tenantId: string,
+  opts: { limit?: number; offset?: number; unanswered?: boolean } = {},
+): Promise<Record<string, unknown>[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 100, 1), 1000);
+  const { rows } = await pool.query(
+    `with conv as (
+       select contact_phone,
+              max(contact_name)                             as contact_name,
+              count(*)                                      as total,
+              count(*) filter (where direction = 'in')      as recebidas,
+              count(*) filter (where direction = 'out')     as enviadas,
+              min(msg_ts)                                   as primeira_em,
+              max(msg_ts)                                   as ultima_em,
+              min(msg_ts) filter (where direction = 'in')   as primeira_recebida_em,
+              min(msg_ts) filter (where direction = 'out')  as primeira_resposta_em,
+              max(ctwa_clid)                                as ctwa_clid
+         from wa_messages
+        where tenant_id = $1 and contact_phone is not null
+        group by contact_phone
+     )
+     select c.*,
+            extract(epoch from (c.primeira_resposta_em - c.primeira_recebida_em))::int
+              as primeira_resposta_seg,
+            (select direction from wa_messages m
+              where m.tenant_id = $1 and m.contact_phone = c.contact_phone
+              order by m.msg_ts desc limit 1) as ultima_direcao,
+            (select body from wa_messages m
+              where m.tenant_id = $1 and m.contact_phone = c.contact_phone
+              order by m.msg_ts desc limit 1) as ultima_mensagem
+       from conv c
+      where ($4::bool is not true or c.enviadas = 0)
+      order by c.ultima_em desc
+      limit $2 offset $3`,
+    [tenantId, limit, Math.max(opts.offset ?? 0, 0), opts.unanswered ?? false],
+  );
+  return rows;
+}
+
+/** Mensagens cruas, com filtros. Sem `phone`, devolve a timeline da conta inteira. */
+export async function listWaMessages(
+  tenantId: string,
+  opts: {
+    phone?: string;
+    q?: string;
+    direction?: "in" | "out";
+    from?: string;
+    to?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<Record<string, unknown>[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 200, 1), 2000);
+  const { rows } = await pool.query(
+    `select id, wamid, direction, contact_phone, contact_name, msg_type, body,
+            ctwa_clid, status, status_at, msg_ts
+       from wa_messages
+      where tenant_id = $1
+        and ($2::text is null or contact_phone = $2)
+        and ($3::text is null or body ilike '%' || $3 || '%')
+        and ($4::text is null or direction = $4)
+        and ($5::timestamptz is null or msg_ts >= $5)
+        and ($6::timestamptz is null or msg_ts <= $6)
+      order by msg_ts desc
+      limit $7 offset $8`,
+    [
+      tenantId,
+      opts.phone ?? null,
+      opts.q ?? null,
+      opts.direction ?? null,
+      opts.from ?? null,
+      opts.to ?? null,
+      limit,
+      Math.max(opts.offset ?? 0, 0),
+    ],
+  );
+  return rows;
+}
+
+/** Resumo para o topo da tela: volume, cobertura de resposta e tempo mediano. */
+export async function waStats(tenantId: string): Promise<Record<string, unknown>> {
+  const { rows } = await pool.query(
+    `with conv as (
+       select contact_phone,
+              count(*) filter (where direction = 'out') as enviadas,
+              min(msg_ts) filter (where direction = 'in')  as t_in,
+              min(msg_ts) filter (where direction = 'out') as t_out
+         from wa_messages
+        where tenant_id = $1 and contact_phone is not null
+        group by contact_phone
+     )
+     select (select count(*) from wa_messages where tenant_id = $1)                        as mensagens,
+            (select count(*) from wa_messages where tenant_id = $1 and direction = 'in')   as recebidas,
+            (select count(*) from wa_messages where tenant_id = $1 and direction = 'out')  as enviadas,
+            (select count(*) from wa_messages where tenant_id = $1 and ctwa_clid is not null) as de_anuncio,
+            (select min(msg_ts) from wa_messages where tenant_id = $1)                     as desde,
+            count(*)                                        as conversas,
+            count(*) filter (where enviadas = 0)            as sem_resposta,
+            percentile_cont(0.5) within group (
+              order by extract(epoch from (t_out - t_in))
+            ) filter (where t_out is not null and t_in is not null)::int as primeira_resposta_mediana_seg
+       from conv`,
+    [tenantId],
+  );
+  return rows[0] ?? {};
+}

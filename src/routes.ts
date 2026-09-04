@@ -15,6 +15,9 @@ import {
   untrackTenantGroup,
   recordCtwaLead,
   saveWaRaw,
+  listWaConversations,
+  listWaMessages,
+  waStats,
   saveWaMessage,
   updateWaStatus,
   listEvents,
@@ -467,6 +470,47 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, summary };
   });
 
+
+
+  // ---- leitura das mensagens do WhatsApp (auditoria) --------------
+  // Protegidas pelo Basic Auth do dashboard (hook em /tenants/*).
+
+  app.get("/tenants/:id/wa/stats", async (req, reply) => {
+    if (!requireAdmin(req, reply)) return;
+    const { id } = req.params as { id: string };
+    return await waStats(id);
+  });
+
+  app.get("/tenants/:id/wa/conversations", async (req, reply) => {
+    if (!requireAdmin(req, reply)) return;
+    const { id } = req.params as { id: string };
+    const q = req.query as Record<string, string>;
+    return {
+      conversations: await listWaConversations(id, {
+        limit: q.limit ? Number(q.limit) : undefined,
+        offset: q.offset ? Number(q.offset) : undefined,
+        unanswered: q.unanswered === "1" || q.unanswered === "true",
+      }),
+    };
+  });
+
+  app.get("/tenants/:id/wa/messages", async (req, reply) => {
+    if (!requireAdmin(req, reply)) return;
+    const { id } = req.params as { id: string };
+    const q = req.query as Record<string, string>;
+    const direction = q.direction === "in" || q.direction === "out" ? q.direction : undefined;
+    return {
+      messages: await listWaMessages(id, {
+        phone: q.phone ? toE164(q.phone) : undefined,
+        q: q.q,
+        direction,
+        from: q.from,
+        to: q.to,
+        limit: q.limit ? Number(q.limit) : undefined,
+        offset: q.offset ? Number(q.offset) : undefined,
+      }),
+    };
+  });
 
   // ---- webhook do WhatsApp Cloud API (Meta) -----------------------
   // Recebe em paralelo ao BSP (Kommo), que segue inscrito na mesma WABA.
