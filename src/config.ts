@@ -16,6 +16,12 @@ export const config = {
   },
 
   adminApiKey: process.env.ADMIN_API_KEY ?? "troque-isto",
+
+  // WhatsApp Cloud API (webhook oficial da Meta)
+  wa: {
+    verifyToken: process.env.WA_VERIFY_TOKEN ?? "",   // usado no handshake GET
+    appSecret: process.env.META_APP_SECRET ?? "",     // assina o X-Hub-Signature-256
+  },
   publicBaseUrl: process.env.PUBLIC_BASE_URL ?? "", // ex.: https://capi.dutraviagens.com.br
   dashBasicAuth: process.env.DASH_BASIC_AUTH ?? "", // "usuario:senha" protege dashboard + /tenants/*
   workerConcurrency: Number(process.env.WORKER_CONCURRENCY ?? 5),

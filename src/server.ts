@@ -30,6 +30,16 @@ async function main(): Promise<void> {
     trustProxy: true, // req.ip correto atrás de proxy/load balancer
   });
 
+  // guarda o corpo cru: a assinatura do webhook da Meta é sobre os bytes originais
+  app.addContentTypeParser("application/json", { parseAs: "buffer" }, (req, body, done) => {
+    (req as unknown as { rawBody?: Buffer }).rawBody = body as Buffer;
+    try {
+      done(null, body.length ? JSON.parse(body.toString("utf8")) : {});
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  });
+
   // navigator.sendBeacon manda text/plain -> parseia como JSON
   app.addContentTypeParser("text/plain", { parseAs: "string" }, (_req, body, done) => {
     try {

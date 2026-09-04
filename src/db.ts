@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import pg from "pg";
@@ -15,8 +15,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 /** Aplica sql/001_init.sql (idempotente). Chamado no boot da API e do worker. */
 export async function ensureSchema(): Promise<void> {
-  const sqlPath = join(here, "../sql/001_init.sql");
-  const sql = await readFile(sqlPath, "utf8");
-  await pool.query(sql);
-  logger.info("schema ensured");
+  const dir = join(here, "../sql");
+  const files = (await readdir(dir)).filter((f) => f.endsWith(".sql")).sort();
+  for (const f of files) {
+    await pool.query(await readFile(join(dir, f), "utf8"));
+  }
+  logger.info({ migrations: files }, "schema ensured");
 }

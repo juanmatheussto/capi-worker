@@ -1,4 +1,5 @@
 import { pool } from "./db.js";
+import type { WaMessage, WaStatus } from "./core/whatsapp.js";
 import type {
   CapiEventRow,
   LeadEventRow,
@@ -599,4 +600,50 @@ export async function matchReadiness(tenantId: string): Promise<Record<string, n
     pct_com_telefone: total ? Math.round((Number(r.with_phone) / total) * 100) : 0,
     pct_com_nome: total ? Math.round((Number(r.with_name) / total) * 100) : 0,
   };
+}
+
+// ------------------------------------------- mensagens do WhatsApp Cloud API
+
+export async function saveWaRaw(tenantId: string, payload: unknown): Promise<void> {
+  await pool.query("insert into wa_webhook_raw (tenant_id, payload) values ($1,$2)", [
+    tenantId,
+    JSON.stringify(payload),
+  ]);
+}
+
+/** Idempotente por (tenant, wamid): a Meta reentrega o mesmo evento em caso de falha. */
+export async function saveWaMessage(tenantId: string, m: WaMessage): Promise<void> {
+  await pool.query(
+    `insert into wa_messages
+       (tenant_id, wamid, waba_id, phone_number_id, direction, contact_phone,
+        contact_name, msg_type, body, ctwa_clid, referral, msg_ts, payload)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+     on conflict (tenant_id, wamid) do nothing`,
+    [
+      tenantId,
+      m.wamid,
+      m.wabaId ?? null,
+      m.phoneNumberId ?? null,
+      m.direction,
+      m.contactPhone ?? null,
+      m.contactName ?? null,
+      m.msgType ?? null,
+      m.body ?? null,
+      m.ctwaClid ?? null,
+      m.referral ? JSON.stringify(m.referral) : null,
+      m.msgTs,
+      JSON.stringify(m.payload),
+    ],
+  );
+}
+
+/** Só avança o status; reentregas fora de ordem não regridem delivered -> sent. */
+export async function updateWaStatus(tenantId: string, s: WaStatus): Promise<void> {
+  await pool.query(
+    `update wa_messages
+        set status = $3, status_at = $4
+      where tenant_id = $1 and wamid = $2
+        and (status_at is null or status_at <= $4)`,
+    [tenantId, s.wamid, s.status, s.statusAt],
+  );
 }

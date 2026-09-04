@@ -14,6 +14,9 @@ import {
   upsertTenantGroup,
   untrackTenantGroup,
   recordCtwaLead,
+  saveWaRaw,
+  saveWaMessage,
+  updateWaStatus,
   listEvents,
   statusCounts,
   matchReadiness,
@@ -39,6 +42,7 @@ import {
   setWebhook,
   getWebhook,
 } from "./core/evolution.js";
+import { parseWebhook, verifySignature } from "./core/whatsapp.js";
 import type { LeadInput, NormalizedEvent } from "./types.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -461,6 +465,58 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     const summary = await ingestEvents(tenant, mapJoins((req.body ?? {}) as Record<string, unknown>));
     return { ok: true, summary };
+  });
+
+
+  // ---- webhook do WhatsApp Cloud API (Meta) -----------------------
+  // Recebe em paralelo ao BSP (Kommo), que segue inscrito na mesma WABA.
+
+  // handshake: a Meta chama uma vez ao salvar a callback URL
+  app.get("/webhooks/whatsapp/:tenantId", async (req, reply) => {
+    const q = req.query as Record<string, string>;
+    if (q["hub.mode"] === "subscribe" && q["hub.verify_token"] === config.wa.verifyToken) {
+      return reply.type("text/plain").send(q["hub.challenge"] ?? "");
+    }
+    return reply.code(403).send({ error: "verify token invalido" });
+  });
+
+  app.post("/webhooks/whatsapp/:tenantId", async (req, reply) => {
+    const { tenantId } = req.params as { tenantId: string };
+    const tenant = await getTenant(tenantId);
+    if (!tenant) return reply.code(404).send({ error: "tenant nao encontrado" });
+
+    const raw = (req as unknown as { rawBody?: Buffer }).rawBody ?? Buffer.from("");
+    const sig = String(req.headers["x-hub-signature-256"] ?? "");
+    if (!verifySignature(raw, sig, config.wa.appSecret)) {
+      return reply.code(401).send({ error: "assinatura invalida" });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    await saveWaRaw(tenant.id, body);
+
+    const { messages, statuses } = parseWebhook(body);
+
+    for (const m of messages) {
+      await saveWaMessage(tenant.id, m);
+      // clique de anuncio: alimenta a mesma tabela que o Evolution ja usa
+      if (m.ctwaClid && m.contactPhone) {
+        await recordCtwaLead({
+          tenantId: tenant.id,
+          phoneE164: m.contactPhone,
+          ctwaClid: m.ctwaClid,
+          sourceId: m.phoneNumberId ?? null,
+        });
+      }
+    }
+    for (const s of statuses) await updateWaStatus(tenant.id, s);
+
+    logger.info(
+      { tenant: tenant.id, messages: messages.length, statuses: statuses.length },
+      "whatsapp webhook in",
+    );
+
+    // 200 rapido: a Meta reentrega (e degrada o app) se demorar ou falhar
+    return { ok: true };
   });
 
   // ---- webhook do Evolution API (fonte principal) -----------------
